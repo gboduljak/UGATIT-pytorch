@@ -1,11 +1,13 @@
-import time
 import itertools
-from dataset import ImageFolder
-from torchvision import transforms
+import time
+from glob import glob
+
 from torch.utils.data import DataLoader
+from torchvision import transforms
+
+from dataset import ImageFolder
 from networks import *
 from utils import *
-from glob import glob
 
 
 class UGATIT(object):
@@ -285,9 +287,14 @@ class UGATIT(object):
       # clip parameter of AdaILN and ILN, applied after optimizer step
       self.genA2B.apply(self.Rho_clipper)
       self.genB2A.apply(self.Rho_clipper)
+      
+      train_status_line = "[%5d/%5d] time: %4.4f d_loss: %.8f, g_loss: %.8f" % (step,
+            self.iteration, time.time() - start_time, Discriminator_loss, Generator_loss)
+      
+      print(train_status_line)
+      with open(os.path.join(self.result_dir, self.dataset,'training_log.txt'), 'a') as tl:
+        tl.write(f'{train_status_line}\n')
 
-      print("[%5d/%5d] time: %4.4f d_loss: %.8f, g_loss: %.8f" % (step,
-            self.iteration, time.time() - start_time, Discriminator_loss, Generator_loss))
       if step % self.print_freq == 0:
         train_sample_num = 5
         test_sample_num = 5
