@@ -1,6 +1,7 @@
 import itertools
 import time
 from glob import glob
+from pathlib import Path
 
 from torch.utils.data import DataLoader
 from torchvision import transforms
@@ -287,12 +288,12 @@ class UGATIT(object):
       # clip parameter of AdaILN and ILN, applied after optimizer step
       self.genA2B.apply(self.Rho_clipper)
       self.genB2A.apply(self.Rho_clipper)
-      
+
       train_status_line = "[%5d/%5d] time: %4.4f d_loss: %.8f, g_loss: %.8f" % (step,
-            self.iteration, time.time() - start_time, Discriminator_loss, Generator_loss)
-      
+                                                                                self.iteration, time.time() - start_time, Discriminator_loss, Generator_loss)
+
       print(train_status_line)
-      with open(os.path.join(self.result_dir, self.dataset,'training_log.txt'), 'a') as tl:
+      with open(os.path.join(self.result_dir, self.dataset, 'training_log.txt'), 'a') as tl:
         tl.write(f'{train_status_line}\n')
 
       if step % self.print_freq == 0:
@@ -501,3 +502,73 @@ class UGATIT(object):
 
       cv2.imwrite(os.path.join(self.result_dir, self.dataset,
                   'test', 'B2A_%d.png' % (n + 1)), B2A * 255.0)
+
+  def translate(self):
+    model_list = glob(os.path.join(
+        self.result_dir, self.dataset, 'model', '*.pt'))
+    if not len(model_list) == 0:
+      model_list.sort()
+      self.load(os.path.join(self.result_dir,
+                self.dataset, 'model'), self.iteration)
+      print(" [*] Load SUCCESS")
+    else:
+      print(" [*] Load FAILURE")
+      return
+
+    if not os.path.exists('translations'):
+      os.mkdir('translations')
+
+    model_translations_dir = Path('translations', self.dataset)
+    if not os.path.exists(model_translations_dir):
+      os.mkdir(model_translations_dir)
+
+    model_with_iters_translations_dir = Path(
+        model_translations_dir, f'iter-{self.iteration}'
+    )
+    if not os.path.exists(model_with_iters_translations_dir):
+      os.mkdir(model_with_iters_translations_dir)
+
+    train_translated_imgs_dir = Path(model_with_iters_translations_dir, 'train')
+    test_translated_imgs_dir = Path(model_with_iters_translations_dir, 'test')
+    full_translated_imgs_dir = Path(model_with_iters_translations_dir, 'full')
+
+    if not os.path.exists(train_translated_imgs_dir):
+      os.mkdir(train_translated_imgs_dir)
+    if not os.path.exists(test_translated_imgs_dir):
+      os.mkdir(test_translated_imgs_dir)
+    if not os.path.exists(full_translated_imgs_dir):
+      os.mkdir(full_translated_imgs_dir)
+
+    self.genA2B.eval(), self.genB2A.eval()
+
+    print('translating train...')
+    for n, (real_A, _) in enumerate(self.trainA_loader):
+      real_A = real_A.to(self.device)
+      img_path, _ = self.trainA_loader.dataset.samples[n]
+      img_name = Path(img_path).name.split('.')[0]
+      fake_A2B, _, _ = self.genA2B(real_A)
+      print(os.path.join(train_translated_imgs_dir, f'{img_name}_fake_B.png'))
+      cv2.imwrite(
+          os.path.join(train_translated_imgs_dir, f'{img_name}_fake_B.png'),
+          RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
+      )
+      cv2.imwrite(
+          os.path.join(full_translated_imgs_dir, f'{img_name}_fake_B.png'),
+          RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
+      )
+
+    print('translating test...')
+    for n, (real_A, _) in enumerate(self.testA_loader):
+      real_A = real_A.to(self.device)
+      img_path, _ = self.testA_loader.dataset.samples[n]
+      img_name = Path(img_path).name.split('.')[0]
+      fake_A2B, _, _ = self.genA2B(real_A)
+      print(os.path.join(test_translated_imgs_dir, f'{img_name}_fake_B.png'))
+      cv2.imwrite(
+          os.path.join(test_translated_imgs_dir, f'{img_name}_fake_B.png'),
+          RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
+      )
+      cv2.imwrite(
+          os.path.join(full_translated_imgs_dir, f'{img_name}_fake_B.png'),
+          RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
+      )
