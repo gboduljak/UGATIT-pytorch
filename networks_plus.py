@@ -169,7 +169,7 @@ class ResnetPlusGenerator(nn.Module):
     self.gmp_fc = nn.Linear(ngf * mult, 1, bias=False)
     self.gattn_fc = nn.Linear(ngf * mult, 1, bias=False)
 
-    self.conv1x1 = nn.Conv2d(ngf * mult * 3, ngf * mult,
+    self.conv1x1 = nn.Conv2d(ngf * mult * 2, ngf * mult,
                              kernel_size=1, stride=1, bias=True)
     self.silu = nn.SiLU(True)
 
