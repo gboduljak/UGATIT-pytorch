@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from einops import rearrange
 
+from networks import ILN
 from transformer_networks import (LearnedAttentionAggregation,
                                   MultiHeadCrossAttentionUp,
                                   MultiHeadSelfAttention)
@@ -74,6 +75,45 @@ class ResnetAdaILNBlock(nn.Module):
     out = self.norm2(out, gamma, beta)
 
     return out + x
+
+
+class SimpleConcatSkipUp(nn.Module):
+  def __init__(self, y_channels: int):
+    super(SimpleConcatSkipUp, self).__init__()
+    self.y_channels = y_channels
+    self.s_channels = self.y_channels // 2
+    self.up = nn.Sequential(
+        nn.Upsample(scale_factor=2, mode='nearest'),
+        nn.ReflectionPad2d(1),
+        nn.Conv2d(
+            in_channels=self.y_channels,
+            out_channels=self.s_channels,
+            kernel_size=3,
+            stride=1,
+            padding=0,
+            bias=False
+        ),
+        ILN(self.s_channels),
+        nn.SiLU(True)
+    )
+    self.conv = nn.Sequential(
+        nn.ReflectionPad2d(1),
+        nn.Conv2d(
+            in_channels=2 * self.s_channels,
+            out_channels=self.s_channels,
+            kernel_size=3,
+            stride=1,
+            padding=0,
+            bias=False
+        ),
+        ILN(self.s_channels),
+        nn.SiLU(True)
+    )
+
+  def forward(self, y, s):
+    x = torch.cat((self.up(y), s), dim=1)
+    x = self.conv(x)
+    return x
 
 
 class ResnetPlusGenerator(nn.Module):
@@ -157,13 +197,14 @@ class ResnetPlusGenerator(nn.Module):
     for i in range(n_downsampling):
       mult = 2**(n_downsampling - i)
       UpBlock2 += [
-          MultiHeadCrossAttentionUp(
-              y_channels=ngf * mult,
-              y_height=self.img_size // mult,
-              y_width=self.img_size // mult,
-              num_heads=num_heads,
-              dropout=dropout,
-          )
+          SimpleConcatSkipUp(ngf * mult)
+          # MultiHeadCrossAttentionUp(
+          #     y_channels=ngf * mult,
+          #     y_height=self.img_size // mult,
+          #     y_width=self.img_size // mult,
+          #     num_heads=num_heads,
+          #     dropout=dropout,
+          # )
       ]
     self.out = nn.Sequential(
         nn.ReflectionPad2d(3),
