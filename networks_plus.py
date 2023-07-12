@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from einops import rearrange
 
-from transformer_networks import (LeaarnedAttentionAggregation,
+from transformer_networks import (LearnedAttentionAggregation,
                                   MultiHeadCrossAttentionUp,
                                   MultiHeadSelfAttention)
 
@@ -121,7 +121,7 @@ class ResnetPlusGenerator(nn.Module):
         num_heads=num_heads
     )
     # Class Activation Map
-    self.attn_pool = LeaarnedAttentionAggregation(
+    self.attn_pool = LearnedAttentionAggregation(
         dim=ngf * mult,
         num_heads=num_heads
     )

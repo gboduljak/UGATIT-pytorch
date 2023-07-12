@@ -230,13 +230,91 @@ class MultiHeadCrossAttentionUp(nn.Module):
                num_heads: int = 4,
                dropout: float = 0) -> None:
     super().__init__()
+
+    self.down_y = nn.Sequential(
+        nn.Sequential(
+            nn.ReflectionPad2d(1),
+            nn.Conv2d(y_channels, y_channels * 2, kernel_size=3,
+                      stride=2, padding=0, bias=False),
+            nn.InstanceNorm2d(y_channels * 2),
+            nn.SiLU(True)
+        ),
+        nn.Sequential(
+            nn.ReflectionPad2d(1),
+            nn.Conv2d(y_channels * 2, y_channels * 4, kernel_size=3,
+                      stride=2, padding=0, bias=False),
+            nn.InstanceNorm2d(y_channels * 4),
+            nn.SiLU(True)
+        ),
+        nn.Sequential(
+            nn.ReflectionPad2d(1),
+            nn.Conv2d(y_channels * 4, y_channels * 8, kernel_size=3,
+                      stride=2, padding=0, bias=False),
+            nn.InstanceNorm2d(y_channels * 8),
+            nn.SiLU(True)
+        )
+    )
+    s_channels = y_channels // 2
+
+    self.down_s = nn.Sequential(
+        nn.Sequential(
+            nn.ReflectionPad2d(1),
+            nn.Conv2d(s_channels, s_channels * 2, kernel_size=3,
+                      stride=2, padding=0, bias=False),
+            nn.InstanceNorm2d(s_channels * 2),
+            nn.SiLU(True)
+        ),
+        nn.Sequential(
+            nn.ReflectionPad2d(1),
+            nn.Conv2d(s_channels * 2, s_channels * 4, kernel_size=3,
+                      stride=2, padding=0, bias=False),
+            nn.InstanceNorm2d(s_channels * 4),
+            nn.SiLU(True)
+        ),
+        nn.Sequential(
+            nn.ReflectionPad2d(1),
+            nn.Conv2d(s_channels * 4, s_channels * 8, kernel_size=3,
+                      stride=2, padding=0, bias=False),
+            nn.InstanceNorm2d(s_channels * 8),
+            nn.SiLU(True)
+        )
+    )
+
+    self.up = nn.Sequential(
+        nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='nearest'),
+            nn.ReflectionPad2d(1),
+            nn.Conv2d(y_channels * 8, y_channels * 4, kernel_size=3,
+                      stride=1, padding=0, bias=False),
+            ILN(y_channels * 4),
+            nn.SiLU(True)
+        ),
+        nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='nearest'),
+            nn.ReflectionPad2d(1),
+            nn.Conv2d(y_channels * 4, y_channels * 2, kernel_size=3,
+                      stride=1, padding=0, bias=False),
+            ILN(y_channels * 2),
+            nn.SiLU(True)
+        ),
+        nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='nearest'),
+            nn.ReflectionPad2d(1),
+            nn.Conv2d(y_channels * 2, y_channels, kernel_size=3,
+                      stride=1, padding=0, bias=False),
+            ILN(y_channels),
+            nn.SiLU(True)
+        )
+    )
+
     self.mhca = MultiHeadCrossAttention(
-        y_channels=y_channels,
-        y_height=y_height,
-        y_width=y_width,
+        y_channels=y_channels*8,
+        y_height=y_height // 8,
+        y_width=y_width // 8,
         num_heads=num_heads,
         dropout=dropout,
     )
+
     self.conv = nn.Sequential(
         nn.ReflectionPad2d(1),
         nn.Conv2d(
@@ -252,10 +330,14 @@ class MultiHeadCrossAttentionUp(nn.Module):
     )
 
   def forward(self, y: torch.tensor, s: torch.tensor):
-    return self.conv(self.mhca(y, s))
+    y = self.down_y(y)
+    s = self.down_s(s)
+    m = self.mhca(y, s)
+    o = self.up(m)
+    return self.conv(o)
 
 
-class LeaarnedAttentionAggregation(nn.Module):
+class LearnedAttentionAggregation(nn.Module):
   # Taken from https://github.com/facebookresearch/deit/blob/main/patchconvnet_models.py.
   def __init__(
       self,
