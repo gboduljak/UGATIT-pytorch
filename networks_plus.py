@@ -238,13 +238,13 @@ class ResnetPlusGenerator(nn.Module):
     gmp_weight = list(self.gmp_fc.parameters())[0]
     gmp = x * gmp_weight.unsqueeze(2).unsqueeze(3)
 
-    gattn = self.attn_pool(rearrange(x, 'b c h w -> b (h w) c'))
-    gattn_logit = self.gattn_fc(gattn.view(x.shape[0], -1))
-    gattn_weight = list(self.gattn_fc.parameters())[0]
-    gattn = x * gattn_weight.unsqueeze(2).unsqueeze(3)
+    # gattn = self.attn_pool(rearrange(x, 'b c h w -> b (h w) c'))
+    # gattn_logit = self.gattn_fc(gattn.view(x.shape[0], -1))
+    # gattn_weight = list(self.gattn_fc.parameters())[0]
+    # gattn = x * gattn_weight.unsqueeze(2).unsqueeze(3)
 
-    cam_logit = torch.cat([gap_logit, gmp_logit, gattn_logit], 1)
-    x = torch.cat([gap, gmp, gattn], 1)
+    cam_logit = torch.cat([gap_logit, gmp_logit], 1)
+    x = torch.cat([gap, gmp], 1)
     x = self.silu(self.conv1x1(x))
 
     heatmap = torch.sum(x, dim=1, keepdim=True)
