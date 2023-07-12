@@ -7,17 +7,22 @@ from torchvision import transforms
 
 from dataset import ImageFolder
 from networks import *
+from networks_plus import ResnetPlusGenerator
 from utils import *
 
 
 class UGATIT(object):
   def __init__(self, args):
     self.light = args.light
+    self.plus = args.plus
 
     if self.light:
       self.model_name = 'UGATIT_light'
     else:
       self.model_name = 'UGATIT'
+
+    if self.plus:
+      self.model_name = 'UGATIT+'
 
     self.result_dir = args.result_dir
     self.dataset = args.dataset
@@ -117,10 +122,16 @@ class UGATIT(object):
     self.testB_loader = DataLoader(self.testB, batch_size=1, shuffle=False)
 
     """ Define Generator, Discriminator """
-    self.genA2B = ResnetGenerator(input_nc=3, output_nc=3, ngf=self.ch,
-                                  n_blocks=self.n_res, img_size=self.img_size, light=self.light).to(self.device)
-    self.genB2A = ResnetGenerator(input_nc=3, output_nc=3, ngf=self.ch,
-                                  n_blocks=self.n_res, img_size=self.img_size, light=self.light).to(self.device)
+    if not self.plus:
+      self.genA2B = ResnetGenerator(input_nc=3, output_nc=3, ngf=self.ch,
+                                    n_blocks=self.n_res, img_size=self.img_size, light=self.light).to(self.device)
+      self.genB2A = ResnetGenerator(input_nc=3, output_nc=3, ngf=self.ch,
+                                    n_blocks=self.n_res, img_size=self.img_size, light=self.light).to(self.device)
+    else:
+      self.genA2B = ResnetPlusGenerator(input_nc=3, output_nc=3, ngf=self.ch,
+                                        n_blocks=self.n_res, img_size=self.img_size, light=self.light).to(self.device)
+      self.genB2A = ResnetPlusGenerator(input_nc=3, output_nc=3, ngf=self.ch,
+                                        n_blocks=self.n_res, img_size=self.img_size, light=self.light).to(self.device)
     self.disGA = Discriminator(
         input_nc=3, ndf=self.ch, n_layers=7).to(self.device)
     self.disGB = Discriminator(
@@ -287,12 +298,12 @@ class UGATIT(object):
       # clip parameter of AdaILN and ILN, applied after optimizer step
       self.genA2B.apply(self.Rho_clipper)
       self.genB2A.apply(self.Rho_clipper)
-      
+
       train_status_line = "[%5d/%5d] time: %4.4f d_loss: %.8f, g_loss: %.8f" % (step,
-            self.iteration, time.time() - start_time, Discriminator_loss, Generator_loss)
-      
+                                                                                self.iteration, time.time() - start_time, Discriminator_loss, Generator_loss)
+
       print(train_status_line)
-      with open(os.path.join(self.result_dir, self.dataset,'training_log.txt'), 'a') as tl:
+      with open(os.path.join(self.result_dir, self.dataset, 'training_log.txt'), 'a') as tl:
         tl.write(f'{train_status_line}\n')
 
       if step % self.print_freq == 0:
