@@ -150,20 +150,8 @@ class ResnetPlusGenerator(nn.Module):
     for i in range(n_blocks):
       DownBlock += [ResnetBlock(ngf * mult, use_bias=False)]
 
-    # self.mhsa = MultiHeadSelfAttention(
-    #     channels=ngf * mult,
-    #     width=img_size // mult,
-    #     height=img_size // mult,
-    #     num_heads=num_heads
-    # )
-    # # Class Activation Map
-    # self.attn_pool = LearnedAttentionAggregation(
-    #     dim=ngf * mult,
-    #     num_heads=num_heads
-    # )
     self.gap_fc = nn.Linear(ngf * mult, 1, bias=False)
     self.gmp_fc = nn.Linear(ngf * mult, 1, bias=False)
-    # self.gattn_fc = nn.Linear(ngf * mult, 1, bias=False)
 
     self.conv1x1 = nn.Conv2d(ngf * mult * 2, ngf * mult,
                              kernel_size=1, stride=1, bias=True)
@@ -194,13 +182,6 @@ class ResnetPlusGenerator(nn.Module):
       mult = 2**(n_downsampling - i)
       UpBlock2 += [
           SimpleConcatSkipUp(ngf * mult)
-          # MultiHeadCrossAttentionUp(
-          #     y_channels=ngf * mult,
-          #     y_height=self.img_size // mult,
-          #     y_width=self.img_size // mult,
-          #     num_heads=num_heads,
-          #     dropout=dropout,
-          # )
       ]
 
     self.DownBlock = nn.Sequential(*DownBlock)
@@ -222,8 +203,6 @@ class ResnetPlusGenerator(nn.Module):
         down_skips.append(x)
     down_skips = list(reversed(down_skips))
 
-    # x = self.mhsa(x)
-
     gap = torch.nn.functional.adaptive_avg_pool2d(x, 1)
     gap_logit = self.gap_fc(gap.view(x.shape[0], -1))
     gap_weight = list(self.gap_fc.parameters())[0]
@@ -233,11 +212,6 @@ class ResnetPlusGenerator(nn.Module):
     gmp_logit = self.gmp_fc(gmp.view(x.shape[0], -1))
     gmp_weight = list(self.gmp_fc.parameters())[0]
     gmp = x * gmp_weight.unsqueeze(2).unsqueeze(3)
-
-    # gattn = self.attn_pool(rearrange(x, 'b c h w -> b (h w) c'))
-    # gattn_logit = self.gattn_fc(gattn.view(x.shape[0], -1))
-    # gattn_weight = list(self.gattn_fc.parameters())[0]
-    # gattn = x * gattn_weight.unsqueeze(2).unsqueeze(3)
 
     cam_logit = torch.cat([gap_logit, gmp_logit], 1)
     x = torch.cat([gap, gmp], 1)
@@ -254,8 +228,7 @@ class ResnetPlusGenerator(nn.Module):
 
     # resnet
     for i in range(self.n_blocks):
-      up = getattr(self, 'UpBlock1_' + str(i+1))(x, gamma, beta)
-      x = up
+      x = getattr(self, 'UpBlock1_' + str(i+1))(x, gamma, beta)
 
     for (up, skip) in zip(self.UpBlock2, down_skips):
       x = up(x, skip)
