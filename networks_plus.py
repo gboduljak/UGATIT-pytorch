@@ -1,11 +1,7 @@
 import torch
 import torch.nn as nn
-from einops import rearrange
 
 from networks import ILN
-from transformer_networks import (LearnedAttentionAggregation,
-                                  MultiHeadCrossAttentionUp,
-                                  MultiHeadSelfAttention)
 
 
 class ResnetBlock(nn.Module):
@@ -154,20 +150,20 @@ class ResnetPlusGenerator(nn.Module):
     for i in range(n_blocks):
       DownBlock += [ResnetBlock(ngf * mult, use_bias=False)]
 
-    self.mhsa = MultiHeadSelfAttention(
-        channels=ngf * mult,
-        width=img_size // mult,
-        height=img_size // mult,
-        num_heads=num_heads
-    )
-    # Class Activation Map
-    self.attn_pool = LearnedAttentionAggregation(
-        dim=ngf * mult,
-        num_heads=num_heads
-    )
+    # self.mhsa = MultiHeadSelfAttention(
+    #     channels=ngf * mult,
+    #     width=img_size // mult,
+    #     height=img_size // mult,
+    #     num_heads=num_heads
+    # )
+    # # Class Activation Map
+    # self.attn_pool = LearnedAttentionAggregation(
+    #     dim=ngf * mult,
+    #     num_heads=num_heads
+    # )
     self.gap_fc = nn.Linear(ngf * mult, 1, bias=False)
     self.gmp_fc = nn.Linear(ngf * mult, 1, bias=False)
-    self.gattn_fc = nn.Linear(ngf * mult, 1, bias=False)
+    # self.gattn_fc = nn.Linear(ngf * mult, 1, bias=False)
 
     self.conv1x1 = nn.Conv2d(ngf * mult * 2, ngf * mult,
                              kernel_size=1, stride=1, bias=True)
@@ -206,6 +202,11 @@ class ResnetPlusGenerator(nn.Module):
           #     dropout=dropout,
           # )
       ]
+
+    self.DownBlock = nn.Sequential(*DownBlock)
+    self.FC = nn.Sequential(*FC)
+    self.UpBlock2 = nn.Sequential(*UpBlock2)
+
     self.out = nn.Sequential(
         nn.ReflectionPad2d(3),
         nn.Conv2d(ngf, output_nc, kernel_size=7,
@@ -213,20 +214,15 @@ class ResnetPlusGenerator(nn.Module):
         nn.Tanh()
     )
 
-    self.DownBlock = nn.Sequential(*DownBlock)
-    self.FC = nn.Sequential(*FC)
-    self.UpBlock2 = nn.Sequential(*UpBlock2)
-
   def forward(self, x):
     down_skips = []
-
     for (i, down) in enumerate(self.DownBlock):
       x = down(x)
       if i < self.n_downsampling:
         down_skips.append(x)
     down_skips = list(reversed(down_skips))
 
-    x = self.mhsa(x)
+    # x = self.mhsa(x)
 
     gap = torch.nn.functional.adaptive_avg_pool2d(x, 1)
     gap_logit = self.gap_fc(gap.view(x.shape[0], -1))
