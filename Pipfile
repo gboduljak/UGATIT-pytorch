@@ -9,6 +9,7 @@ opencv-python = "*"
 torchvision = "*"
 einops = "*"
 torchinfo = "*"
+scipy = "*"
 
 [dev-packages]
 ipykernel = "*"

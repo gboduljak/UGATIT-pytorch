@@ -10,7 +10,7 @@ def parse_args():
   desc = "Pytorch implementation of U-GAT-IT"
   parser = argparse.ArgumentParser(description=desc)
   parser.add_argument('--phase', type=str, default='train',
-                      help='[train / test]')
+                      help='[train / test / translate]')
   parser.add_argument('--light', type=str2bool, default=False,
                       help='[U-GAT-IT full version / U-GAT-IT light version]')
   parser.add_argument('--plus', type=str2bool, default=False,
@@ -110,6 +110,10 @@ def main():
   if args.phase == 'test':
     gan.test()
     print(" [*] Test finished!")
+
+  if args.phase == 'translate':
+    gan.translate()
+    print(" [*] Translation finished!")
 
 
 if __name__ == '__main__':
