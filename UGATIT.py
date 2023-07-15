@@ -392,7 +392,7 @@ class UGATIT(object):
 
       Generator_loss = self.adv_weight * (G_ad_loss_global + G_ad_loss_local) + \
           self.cycle_weight * G_recon + self.identity_weight * \
-          100 * G_identity + self.class_weight * G_class
+          G_identity + self.class_weight * G_class
 
       Generator_loss.backward()
       self.G_optim.step()
