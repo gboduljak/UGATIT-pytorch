@@ -7,12 +7,11 @@ from utils import *
 
 
 def parse_args():
-  desc = "Pytorch implementation of U-GAT-IT"
+  desc = "Pytorch implementation of U-GAT-IT Pipeline"
   parser = argparse.ArgumentParser(description=desc)
   parser.add_argument('--phase', type=str, default='train',
                       help='[train / test / translate]')
-  parser.add_argument('--light', type=str2bool, default=False,
-                      help='[U-GAT-IT full version / U-GAT-IT light version]')
+
   parser.add_argument('--dataset', type=str,
                       default='YOUR_DATASET_NAME', help='dataset_name')
 
@@ -20,7 +19,7 @@ def parse_args():
                       help='The number of training iterations')
   parser.add_argument('--batch_size', type=int, default=1,
                       help='The size of batch size')
-  parser.add_argument('--print_freq', type=int, default=1000,
+  parser.add_argument('--print_freq', type=int, default=10,
                       help='The number of image print freq')
   parser.add_argument('--save_freq', type=int, default=100000,
                       help='The number of model save freq')
@@ -37,8 +36,10 @@ def parse_args():
                       default=10, help='Weight for Cycle')
   parser.add_argument('--identity_weight', type=int,
                       default=10, help='Weight for Identity')
+  parser.add_argument('--class_weight', type=int,
+                      default=10, help='Weight for Classification of generated images')
   parser.add_argument('--cam_weight', type=int,
-                      default=1000, help='Weight for CAM')
+                      default=100, help='Weight for CAM')
 
   parser.add_argument('--ch', type=int, default=64,
                       help='base channel number per layer')
@@ -46,6 +47,8 @@ def parse_args():
                       help='The number of resblock')
   parser.add_argument('--n_dis', type=int, default=6,
                       help='The number of discriminator layer')
+  parser.add_argument('--n_classes', type=int, default=3,
+                      help='The number of classes')
 
   parser.add_argument('--img_size', type=int, default=256,
                       help='The size of image')
@@ -55,7 +58,7 @@ def parse_args():
   parser.add_argument('--result_dir', type=str, default='results',
                       help='Directory name to save the results')
   parser.add_argument('--device', type=str, default='cuda',
-                      choices=['cpu', 'cuda'], help='Set gpu mode; [cpu, cuda]')
+                      choices=['cpu', 'cuda', 'mps'], help='Set gpu mode; [cpu, cuda, mps]')
   parser.add_argument('--benchmark_flag', type=str2bool, default=False)
   parser.add_argument('--resume', type=str2bool, default=False)
 
@@ -87,7 +90,6 @@ def check_args(args):
 
 
 """main"""
-
 
 def main():
   # parse arguments

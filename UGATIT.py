@@ -5,23 +5,20 @@ from pathlib import Path
 
 from torch.utils.data import DataLoader
 from torchvision import transforms
+from torchvision.datasets import ImageFolder
 
-from dataset import ImageFolder
+from modules.dann import DANN
 from networks import *
 from utils import *
 
 
 class UGATIT(object):
   def __init__(self, args):
-    self.light = args.light
 
-    if self.light:
-      self.model_name = 'UGATIT_light'
-    else:
-      self.model_name = 'UGATIT'
-
+    self.model_name = 'UGATIT_light Pipeline'
     self.result_dir = args.result_dir
     self.dataset = args.dataset
+    self.n_classes = args.n_classes
 
     self.iteration = args.iteration
     self.decay_flag = args.decay_flag
@@ -39,6 +36,7 @@ class UGATIT(object):
     self.cycle_weight = args.cycle_weight
     self.identity_weight = args.identity_weight
     self.cam_weight = args.cam_weight
+    self.class_weight = args.class_weight
 
     """ Generator """
     self.n_res = args.n_res
@@ -60,7 +58,6 @@ class UGATIT(object):
     print()
 
     print("##### Information #####")
-    print("# light : ", self.light)
     print("# dataset : ", self.dataset)
     print("# batch_size : ", self.batch_size)
     print("# iteration per epoch : ", self.iteration)
@@ -82,6 +79,7 @@ class UGATIT(object):
     print("# cycle_weight : ", self.cycle_weight)
     print("# identity_weight : ", self.identity_weight)
     print("# cam_weight : ", self.cam_weight)
+    print("# class_weight : ", self.class_weight)
 
   ##################################################################################
   # Model
@@ -89,70 +87,129 @@ class UGATIT(object):
 
   def build_model(self):
     """ DataLoader """
-    train_transform = transforms.Compose([
+    mean = (0.485, 0.456, 0.406)
+    std = (0.229, 0.224, 0.225)
+
+    source_train_transform = transforms.Compose([
+        transforms.Resize(256),
+        transforms.RandomCrop(224),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=mean, std=std)
+    ])
+
+    source_test_transform = transforms.Compose([
+        transforms.Resize(256),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=mean, std=std)
+    ])
+    target_train_transform = transforms.Compose([
         transforms.RandomHorizontalFlip(),
         transforms.Resize((self.img_size + 30, self.img_size+30)),
         transforms.RandomCrop(self.img_size),
         transforms.ToTensor(),
         transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
     ])
-    test_transform = transforms.Compose([
+    target_test_transform = transforms.Compose([
         transforms.Resize((self.img_size, self.img_size)),
         transforms.ToTensor(),
         transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
     ])
-
-    self.trainA = ImageFolder(os.path.join(
-        'dataset', self.dataset, 'trainA'), train_transform)
-    self.trainB = ImageFolder(os.path.join(
-        'dataset', self.dataset, 'trainB'), train_transform)
-    self.testA = ImageFolder(os.path.join(
-        'dataset', self.dataset, 'testA'), test_transform)
-    self.testB = ImageFolder(os.path.join(
-        'dataset', self.dataset, 'testB'), test_transform)
-    self.trainA_loader = DataLoader(
-        self.trainA, batch_size=self.batch_size, shuffle=True)
-    self.trainB_loader = DataLoader(
-        self.trainB, batch_size=self.batch_size, shuffle=True)
-    self.testA_loader = DataLoader(self.testA, batch_size=1, shuffle=False)
-    self.testB_loader = DataLoader(self.testB, batch_size=1, shuffle=False)
+    self.source_train = ImageFolder(
+        os.path.join('dataset', self.dataset, 'source', 'train'),
+        source_train_transform
+    )
+    self.source_test = ImageFolder(
+        os.path.join('dataset', self.dataset, 'source', 'test'),
+        source_test_transform
+    )
+    self.target_train = ImageFolder(
+        os.path.join('dataset', self.dataset, 'target', 'train'),
+        target_train_transform
+    )
+    self.target_test = ImageFolder(
+        os.path.join('dataset', self.dataset, 'target', 'test'),
+        target_test_transform
+    )
+    self.source_train_loader = DataLoader(
+        self.source_train,
+        batch_size=self.batch_size,
+        shuffle=True
+    )
+    self.source_test_loader = DataLoader(
+        self.source_test,
+        batch_size=self.batch_size,
+        shuffle=True
+    )
+    self.target_train_loader = DataLoader(
+        self.target_train,
+        batch_size=self.batch_size,
+        shuffle=True
+    )
+    self.target_test_loader = DataLoader(
+        self.target_test,
+        batch_size=1,
+        shuffle=False
+    )
+    """Prepare DANN"""
+    self.dann = DANN.load_from_checkpoint(
+        'dann-val_tgt_cls_acc=0.9364162087440491.ckpt',
+        map_location=self.device
+    )
+    self.dann.eval()
 
     """ Define Generator, Discriminator """
-    self.genA2B = ResnetGenerator(input_nc=3, output_nc=3, ngf=self.ch,
-                                  n_blocks=self.n_res, img_size=self.img_size, light=self.light).to(self.device)
-    self.genB2A = ResnetGenerator(input_nc=3, output_nc=3, ngf=self.ch,
-                                  n_blocks=self.n_res, img_size=self.img_size, light=self.light).to(self.device)
-    self.disGA = Discriminator(
-        input_nc=3, ndf=self.ch, n_layers=7).to(self.device)
-    self.disGB = Discriminator(
-        input_nc=3, ndf=self.ch, n_layers=7).to(self.device)
-    self.disLA = Discriminator(
-        input_nc=3, ndf=self.ch, n_layers=5).to(self.device)
-    self.disLB = Discriminator(
-        input_nc=3, ndf=self.ch, n_layers=5).to(self.device)
-
+    self.g = Generator(
+        input_nc=3,
+        output_nc=3,
+        ngf=self.ch,
+        n_blocks=self.n_res,
+        n_classes=self.n_classes,
+        img_size=self.img_size
+    ).to(self.device)
+    self.dis_global = Discriminator(
+        input_nc=3,
+        ndf=self.ch,
+        n_layers=7,
+        n_classes=self.n_classes,
+    ).to(self.device)
+    self.dis_local = Discriminator(
+        input_nc=3,
+        ndf=self.ch,
+        n_layers=5,
+        n_classes=self.n_classes,
+    ).to(self.device)
     """ Define Loss """
     self.L1_loss = nn.L1Loss().to(self.device)
     self.MSE_loss = nn.MSELoss().to(self.device)
     self.BCE_loss = nn.BCEWithLogitsLoss().to(self.device)
-
     """ Trainer """
-    self.G_optim = torch.optim.Adam(itertools.chain(self.genA2B.parameters(
-    ), self.genB2A.parameters()), lr=self.lr, betas=(0.5, 0.999), weight_decay=self.weight_decay)
-    self.D_optim = torch.optim.Adam(itertools.chain(self.disGA.parameters(), self.disGB.parameters(
-    ), self.disLA.parameters(), self.disLB.parameters()), lr=self.lr, betas=(0.5, 0.999), weight_decay=self.weight_decay)
+    self.G_optim = torch.optim.Adam(
+        self.g.parameters(),
+        lr=self.lr,
+        betas=(0.5, 0.999),
+        weight_decay=self.weight_decay
+    )
+    self.D_optim = torch.optim.Adam(
+        itertools.chain(self.dis_global.parameters(),
+                        self.dis_local.parameters()),
+        lr=self.lr,
+        betas=(0.5, 0.999),
+        weight_decay=self.weight_decay
+    )
 
     """ Define Rho clipper to constraint the value of rho in AdaILN and ILN"""
     self.Rho_clipper = RhoClipper(0, 1)
 
   def train(self):
-    self.genA2B.train(), self.genB2A.train(), self.disGA.train(
-    ), self.disGB.train(), self.disLA.train(), self.disLB.train()
+    self.g.train(), self.dis_global.train(), self.dis_local.train()
 
     start_iter = 1
     if self.resume:
-      model_list = glob(os.path.join(
-          self.result_dir, self.dataset, 'model', '*.pt'))
+      model_list = glob(
+          os.path.join(self.result_dir, self.dataset, 'model', '*.pt')
+      )
       if not len(model_list) == 0:
         model_list.sort()
         start_iter = int(model_list[-1].split('_')[-1].split('.')[0])
@@ -174,120 +231,166 @@ class UGATIT(object):
         self.D_optim.param_groups[0]['lr'] -= (self.lr / (self.iteration // 2))
 
       try:
-        real_A, _ = next(trainA_iter)
+        x_tgt_real, _ = next(target_train_iter)
       except:
-        trainA_iter = iter(self.trainA_loader)
-        real_A, _ = next(trainA_iter)
+        target_train_iter = iter(self.target_train_loader)
+        x_tgt_real, _ = next(target_train_iter)
 
       try:
-        real_B, _ = next(trainB_iter)
+        x_src_real, _ = next(source_train_iter)
       except:
-        trainB_iter = iter(self.trainB_loader)
-        real_B, _ = next(trainB_iter)
+        source_train_iter = iter(self.source_train_loader)
+        x_src_real, _ = next(source_train_iter)
 
-      real_A, real_B = real_A.to(self.device), real_B.to(self.device)
+      x_src_real = x_src_real.to(self.device)
+      x_tgt_real = x_tgt_real.to(self.device)
+
+      with torch.no_grad():
+        f_src = self.dann.extract_features(x_src_real)
+        f_tgt = self.dann.extract_features(x_tgt_real)
+        x_src_real_logits = self.dann.classifier.head(f_src)
+        x_src_class = torch.argmax(x_src_real_logits, dim=1).item()
+        x_tgt_real_logits = self.dann.classifier.head(f_tgt)
+        x_tgt_class = torch.argmax(x_tgt_real_logits, dim=1).item()
 
       # Update D
       self.D_optim.zero_grad()
 
-      fake_A2B, _, _ = self.genA2B(real_A)
-      fake_B2A, _, _ = self.genB2A(real_B)
+      x_tgt_fake_labeled_src = self.g(x_tgt_real, f_src, x_src_class)
+      x_tgt_fake_labeled_tgt = self.g(x_tgt_real, f_tgt, x_tgt_class)
 
-      real_GA_logit, real_GA_cam_logit, _ = self.disGA(real_A)
-      real_LA_logit, real_LA_cam_logit, _ = self.disLA(real_A)
-      real_GB_logit, real_GB_cam_logit, _ = self.disGB(real_B)
-      real_LB_logit, real_LB_cam_logit, _ = self.disLB(real_B)
+      real_GB_logit, real_GB_cam_logit, _ = self.dis_global(
+          x_tgt_real, x_tgt_class, cam=True)  # global
+      real_LB_logit, real_LB_cam_logit, _ = self.dis_local(
+          x_tgt_real, x_tgt_class, cam=True)  # local
 
-      fake_GA_logit, fake_GA_cam_logit, _ = self.disGA(fake_B2A)
-      fake_LA_logit, fake_LA_cam_logit, _ = self.disLA(fake_B2A)
-      fake_GB_logit, fake_GB_cam_logit, _ = self.disGB(fake_A2B)
-      fake_LB_logit, fake_LB_cam_logit, _ = self.disLB(fake_A2B)
+      fake_GB_logit_1 = self.dis_global(
+          x_tgt_fake_labeled_src, x_src_class
+      )
+      fake_GB_logit_2 = self.dis_global(
+          x_tgt_fake_labeled_tgt, x_tgt_class
+      )
+      fake_LB_logit_1 = self.dis_local(
+          x_tgt_fake_labeled_src, x_src_class
+      )
+      fake_LB_logit_2 = self.dis_local(
+          x_tgt_fake_labeled_tgt, x_tgt_class
+      )
 
-      D_ad_loss_GA = self.MSE_loss(real_GA_logit, torch.ones_like(real_GA_logit).to(
-          self.device)) + self.MSE_loss(fake_GA_logit, torch.zeros_like(fake_GA_logit).to(self.device))
-      D_ad_cam_loss_GA = self.MSE_loss(real_GA_cam_logit, torch.ones_like(real_GA_cam_logit).to(
-          self.device)) + self.MSE_loss(fake_GA_cam_logit, torch.zeros_like(fake_GA_cam_logit).to(self.device))
-      D_ad_loss_LA = self.MSE_loss(real_LA_logit, torch.ones_like(real_LA_logit).to(
-          self.device)) + self.MSE_loss(fake_LA_logit, torch.zeros_like(fake_LA_logit).to(self.device))
-      D_ad_cam_loss_LA = self.MSE_loss(real_LA_cam_logit, torch.ones_like(real_LA_cam_logit).to(
-          self.device)) + self.MSE_loss(fake_LA_cam_logit, torch.zeros_like(fake_LA_cam_logit).to(self.device))
-      D_ad_loss_GB = self.MSE_loss(real_GB_logit, torch.ones_like(real_GB_logit).to(
-          self.device)) + self.MSE_loss(fake_GB_logit, torch.zeros_like(fake_GB_logit).to(self.device))
-      D_ad_cam_loss_GB = self.MSE_loss(real_GB_cam_logit, torch.ones_like(real_GB_cam_logit).to(
-          self.device)) + self.MSE_loss(fake_GB_cam_logit, torch.zeros_like(fake_GB_cam_logit).to(self.device))
-      D_ad_loss_LB = self.MSE_loss(real_LB_logit, torch.ones_like(real_LB_logit).to(
-          self.device)) + self.MSE_loss(fake_LB_logit, torch.zeros_like(fake_LB_logit).to(self.device))
-      D_ad_cam_loss_LB = self.MSE_loss(real_LB_cam_logit, torch.ones_like(real_LB_cam_logit).to(
-          self.device)) + self.MSE_loss(fake_LB_cam_logit, torch.zeros_like(fake_LB_cam_logit).to(self.device))
+      D_ad_loss_global = self.MSE_loss(
+          real_GB_logit,
+          torch.ones_like(real_GB_logit).to(self.device)
+      ) + self.MSE_loss(
+          fake_GB_logit_1,
+          torch.zeros_like(fake_GB_logit_1).to(self.device)
+      )
+      + self.MSE_loss(
+          fake_GB_logit_2,
+          torch.zeros_like(fake_GB_logit_2).to(self.device)
+      )
+      cam_nets = 2
 
-      D_loss_A = self.adv_weight * \
-          (D_ad_loss_GA + D_ad_cam_loss_GA + D_ad_loss_LA + D_ad_cam_loss_LA)
-      D_loss_B = self.adv_weight * \
-          (D_ad_loss_GB + D_ad_cam_loss_GB + D_ad_loss_LB + D_ad_cam_loss_LB)
+      D_cam_loss_global = self.MSE_loss(
+          real_GB_cam_logit,
+          x_src_real_logits.repeat((1, cam_nets))
+      )
 
-      Discriminator_loss = D_loss_A + D_loss_B
+      D_ad_loss_local = self.MSE_loss(
+          real_LB_logit,
+          torch.ones_like(real_LB_logit).to(self.device)
+      ) + self.MSE_loss(
+          fake_LB_logit_1,
+          torch.zeros_like(fake_LB_logit_1).to(self.device)
+      ) + self.MSE_loss(
+          fake_LB_logit_2,
+          torch.zeros_like(fake_LB_logit_2).to(self.device)
+      )
+
+      D_cam_loss_local = self.MSE_loss(
+          real_LB_cam_logit,
+          x_src_real_logits.repeat((1, cam_nets))
+      )
+
+      Discriminator_loss = self.adv_weight * \
+          (D_ad_loss_global + D_ad_loss_local +
+           D_cam_loss_global + D_cam_loss_local)
       Discriminator_loss.backward()
       self.D_optim.step()
 
       # Update G
       self.G_optim.zero_grad()
 
-      fake_A2B, fake_A2B_cam_logit, _ = self.genA2B(real_A)
-      fake_B2A, fake_B2A_cam_logit, _ = self.genB2A(real_B)
+      x_tgt_fake_labeled_src = self.g(
+          x_tgt_real, f_src, x_src_class)
+      x_tgt_fake_labeled_tgt = self.g(
+          x_tgt_real, f_tgt, x_tgt_class)
+      x_tgt_fake_reconstr = self.g(
+          x_tgt_fake_labeled_src, f_tgt, x_tgt_class)
 
-      fake_A2B2A, _, _ = self.genB2A(fake_A2B)
-      fake_B2A2B, _, _ = self.genA2B(fake_B2A)
+      real_GB_logit = self.dis_global(
+          x_tgt_real, x_tgt_class)  # global
+      real_LB_logit = self.dis_local(
+          x_tgt_real, x_tgt_class)  # local
 
-      fake_A2A, fake_A2A_cam_logit, _ = self.genB2A(real_A)
-      fake_B2B, fake_B2B_cam_logit, _ = self.genA2B(real_B)
+      fake_GB_logit_1 = self.dis_global(
+          x_tgt_fake_labeled_src, x_src_class
+      )
+      fake_GB_logit_2 = self.dis_global(
+          x_tgt_fake_labeled_tgt, x_tgt_class
+      )
+      fake_LB_logit_1 = self.dis_local(
+          x_tgt_fake_labeled_src, x_src_class
+      )
+      fake_LB_logit_2 = self.dis_local(
+          x_tgt_fake_labeled_tgt, x_tgt_class
+      )
 
-      fake_GA_logit, fake_GA_cam_logit, _ = self.disGA(fake_B2A)
-      fake_LA_logit, fake_LA_cam_logit, _ = self.disLA(fake_B2A)
-      fake_GB_logit, fake_GB_cam_logit, _ = self.disGB(fake_A2B)
-      fake_LB_logit, fake_LB_cam_logit, _ = self.disLB(fake_A2B)
+      G_ad_loss_global = self.MSE_loss(
+          fake_GB_logit_1,
+          torch.ones_like(fake_GB_logit_1).to(self.device)
+      ) + self.MSE_loss(
+          fake_GB_logit_2,
+          torch.ones_like(fake_GB_logit_2).to(self.device)
+      )
+      G_ad_loss_local = self.MSE_loss(
+          fake_LB_logit_1,
+          torch.ones_like(fake_LB_logit_1).to(self.device)
+      ) + self.MSE_loss(
+          fake_LB_logit_2,
+          torch.ones_like(fake_LB_logit_2).to(self.device)
+      )
 
-      G_ad_loss_GA = self.MSE_loss(
-          fake_GA_logit, torch.ones_like(fake_GA_logit).to(self.device))
-      G_ad_cam_loss_GA = self.MSE_loss(
-          fake_GA_cam_logit, torch.ones_like(fake_GA_cam_logit).to(self.device))
-      G_ad_loss_LA = self.MSE_loss(
-          fake_LA_logit, torch.ones_like(fake_LA_logit).to(self.device))
-      G_ad_cam_loss_LA = self.MSE_loss(
-          fake_LA_cam_logit, torch.ones_like(fake_LA_cam_logit).to(self.device))
-      G_ad_loss_GB = self.MSE_loss(
-          fake_GB_logit, torch.ones_like(fake_GB_logit).to(self.device))
-      G_ad_cam_loss_GB = self.MSE_loss(
-          fake_GB_cam_logit, torch.ones_like(fake_GB_cam_logit).to(self.device))
-      G_ad_loss_LB = self.MSE_loss(
-          fake_LB_logit, torch.ones_like(fake_LB_logit).to(self.device))
-      G_ad_cam_loss_LB = self.MSE_loss(
-          fake_LB_cam_logit, torch.ones_like(fake_LB_cam_logit).to(self.device))
+      cam_nets = 2
 
-      G_recon_loss_A = self.L1_loss(fake_A2B2A, real_A)
-      G_recon_loss_B = self.L1_loss(fake_B2A2B, real_B)
+    #   G_cam_loss = self.MSE_loss(
+    #       x_tgt_fake_labeled_src_cam_logits,
+    #       x_src_real_logits.repeat((1, cam_nets))
+    #   ) + self.MSE_loss(
+    #       x_tgt_fake_labeled_tgt_cam_logits,
+    #       x_tgt_real_logits.repeat((1, cam_nets))
+    #   )
 
-      G_identity_loss_A = self.L1_loss(fake_A2A, real_A)
-      G_identity_loss_B = self.L1_loss(fake_B2B, real_B)
+      G_recon = self.L1_loss(
+          x_tgt_fake_reconstr,
+          x_tgt_real
+      )  # cycle consistency
+      G_identity = self.L1_loss(
+          x_tgt_fake_labeled_tgt,
+          x_tgt_real
+      )  # identity loss
 
-      G_cam_loss_A = self.BCE_loss(fake_B2A_cam_logit, torch.ones_like(fake_B2A_cam_logit).to(
-          self.device)) + self.BCE_loss(fake_A2A_cam_logit, torch.zeros_like(fake_A2A_cam_logit).to(self.device))
-      G_cam_loss_B = self.BCE_loss(fake_A2B_cam_logit, torch.ones_like(fake_A2B_cam_logit).to(
-          self.device)) + self.BCE_loss(fake_B2B_cam_logit, torch.zeros_like(fake_B2B_cam_logit).to(self.device))
+      G_class = self.MSE_loss(
+          self.dann(x_tgt_fake_labeled_src), x_src_real_logits
+      )
+      Generator_loss = self.adv_weight * (G_ad_loss_global + G_ad_loss_local) + \
+          self.cycle_weight * G_recon + self.identity_weight * \
+          100 * G_identity + self.class_weight * G_class
 
-      G_loss_A = self.adv_weight * (G_ad_loss_GA + G_ad_cam_loss_GA + G_ad_loss_LA + G_ad_cam_loss_LA) + \
-          self.cycle_weight * G_recon_loss_A + self.identity_weight * \
-          G_identity_loss_A + self.cam_weight * G_cam_loss_A
-      G_loss_B = self.adv_weight * (G_ad_loss_GB + G_ad_cam_loss_GB + G_ad_loss_LB + G_ad_cam_loss_LB) + \
-          self.cycle_weight * G_recon_loss_B + self.identity_weight * \
-          G_identity_loss_B + self.cam_weight * G_cam_loss_B
-
-      Generator_loss = G_loss_A + G_loss_B
       Generator_loss.backward()
       self.G_optim.step()
 
       # clip parameter of AdaILN and ILN, applied after optimizer step
-      self.genA2B.apply(self.Rho_clipper)
-      self.genB2A.apply(self.Rho_clipper)
+      self.g.apply(self.Rho_clipper)
 
       train_status_line = "[%5d/%5d] time: %4.4f d_loss: %.8f, g_loss: %.8f" % (step,
                                                                                 self.iteration, time.time() - start_time, Discriminator_loss, Generator_loss)
@@ -299,276 +402,255 @@ class UGATIT(object):
       if step % self.print_freq == 0:
         train_sample_num = 5
         test_sample_num = 5
-        A2B = np.zeros((self.img_size * 7, 0, 3))
-        B2A = np.zeros((self.img_size * 7, 0, 3))
+        A2B = np.zeros((self.img_size * 4, 0, 3))
 
-        self.genA2B.eval(), self.genB2A.eval(), self.disGA.eval(
-        ), self.disGB.eval(), self.disLA.eval(), self.disLB.eval()
+        self.g.eval(), self.dis_global.eval(), self.dis_local.eval()
+
         for _ in range(train_sample_num):
           try:
-            real_A, _ = next(trainA_iter)
+            x_tgt_real, _ = next(target_train_iter)
           except:
-            trainA_iter = iter(self.trainA_loader)
-            real_A, _ = next(trainA_iter)
+            target_train_iter = iter(self.target_train_loader)
+            x_tgt_real, _ = next(target_train_iter)
 
           try:
-            real_B, _ = next(trainB_iter)
+            x_src_real, _ = next(source_train_iter)
           except:
-            trainB_iter = iter(self.trainB_loader)
-            real_B, _ = next(trainB_iter)
-          real_A, real_B = real_A.to(self.device), real_B.to(self.device)
+            source_train_iter = iter(self.source_train_loader)
+            x_src_real, _ = next(source_train_iter)
 
-          fake_A2B, _, fake_A2B_heatmap = self.genA2B(real_A)
-          fake_B2A, _, fake_B2A_heatmap = self.genB2A(real_B)
+          x_src_real = x_src_real.to(self.device)
+          x_tgt_real = x_tgt_real.to(self.device)
+          t = transforms.Compose(
+              [transforms.ToPILImage(),
+               transforms.Resize((256, 256)),
+               transforms.ToTensor()]
+          )
+          with torch.no_grad():
+            f_src = self.dann.extract_features(x_src_real)
+            f_tgt = self.dann.extract_features(x_tgt_real)
+            x_src_real_logits = self.dann.classifier.head(f_src)
+            x_src_class = torch.argmax(x_src_real_logits, dim=1).item()
+            x_tgt_real_logits = self.dann.classifier.head(f_tgt)
+            x_tgt_class = torch.argmax(x_tgt_real_logits, dim=1).item()
 
-          fake_A2B2A, _, fake_A2B2A_heatmap = self.genB2A(fake_A2B)
-          fake_B2A2B, _, fake_B2A2B_heatmap = self.genA2B(fake_B2A)
+          x_tgt_fake_labeled_src = self.g(
+              x_tgt_real, f_src, x_src_class)
+          x_tgt_fake_labeled_tgt = self.g(
+              x_tgt_real, f_tgt, x_tgt_class)
 
-          fake_A2A, _, fake_A2A_heatmap = self.genB2A(real_A)
-          fake_B2B, _, fake_B2B_heatmap = self.genA2B(real_B)
+          A2B = np.concatenate((A2B, np.concatenate((
+              RGB2BGR(tensor2numpy(denorm(x_tgt_real[0]))),
+              RGB2BGR(tensor2numpy(denorm(t(x_src_real[0])))),
+              #   cam(tensor2numpy(
+              #       x_tgt_fake_labeled_tgt_heatmap[0]), self.img_size),
+              RGB2BGR(tensor2numpy(
+                  denorm(x_tgt_fake_labeled_tgt[0]))),
+              #   cam(tensor2numpy(
+              #       x_tgt_fake_labeled_src_heatmap[0]), self.img_size),
+              RGB2BGR(tensor2numpy(denorm(x_tgt_fake_labeled_src[0])))), 0)), 1
+          )
 
-          A2B = np.concatenate((A2B, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_A[0]))),
-                                                     cam(tensor2numpy(
-                                                         fake_A2A_heatmap[0]), self.img_size),
-                                                     RGB2BGR(tensor2numpy(
-                                                         denorm(fake_A2A[0]))),
-                                                     cam(tensor2numpy(
-                                                         fake_A2B_heatmap[0]), self.img_size),
-                                                     RGB2BGR(tensor2numpy(
-                                                         denorm(fake_A2B[0]))),
-                                                     cam(tensor2numpy(
-                                                         fake_A2B2A_heatmap[0]), self.img_size),
-                                                     RGB2BGR(tensor2numpy(denorm(fake_A2B2A[0])))), 0)), 1)
+    #     for _ in range(test_sample_num):
+    #       try:
+    #         x_tgt_real, _ = next(testA_iter)
+    #       except:
+    #         testA_iter = iter(self.testA_loader)
+    #         x_tgt_real, _ = next(testA_iter)
 
-          B2A = np.concatenate((B2A, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_B[0]))),
-                                                     cam(tensor2numpy(
-                                                         fake_B2B_heatmap[0]), self.img_size),
-                                                     RGB2BGR(tensor2numpy(
-                                                         denorm(fake_B2B[0]))),
-                                                     cam(tensor2numpy(
-                                                         fake_B2A_heatmap[0]), self.img_size),
-                                                     RGB2BGR(tensor2numpy(
-                                                         denorm(fake_B2A[0]))),
-                                                     cam(tensor2numpy(
-                                                         fake_B2A2B_heatmap[0]), self.img_size),
-                                                     RGB2BGR(tensor2numpy(denorm(fake_B2A2B[0])))), 0)), 1)
+    #       try:
+    #         real_B, _ = next(testB_iter)
+    #       except:
+    #         testB_iter = iter(self.testB_loader)
+    #         real_B, _ = next(testB_iter)
+    #       x_tgt_real, real_B = x_tgt_real.to(
+    #           self.device), real_B.to(self.device)
 
-        for _ in range(test_sample_num):
-          try:
-            real_A, _ = next(testA_iter)
-          except:
-            testA_iter = iter(self.testA_loader)
-            real_A, _ = next(testA_iter)
+    #       x_tgt_fake, _, x_tgt_fake_heatmap = self.g(x_tgt_real)
 
-          try:
-            real_B, _ = next(testB_iter)
-          except:
-            testB_iter = iter(self.testB_loader)
-            real_B, _ = next(testB_iter)
-          real_A, real_B = real_A.to(self.device), real_B.to(self.device)
+    #       fake_B2A2B, _, fake_B2A2B_heatmap = self.g(fake_B2A)
 
-          fake_A2B, _, fake_A2B_heatmap = self.genA2B(real_A)
-          fake_B2A, _, fake_B2A_heatmap = self.genB2A(real_B)
+    #       fake_B2B, _, fake_B2B_heatmap = self.g(real_B)
 
-          fake_A2B2A, _, fake_A2B2A_heatmap = self.genB2A(fake_A2B)
-          fake_B2A2B, _, fake_B2A2B_heatmap = self.genA2B(fake_B2A)
+    #       A2B = np.concatenate((A2B, np.concatenate((RGB2BGR(tensor2numpy(denorm(x_tgt_real[0]))),
+    #                                                  cam(tensor2numpy(
+    #                                                      fake_A2A_heatmap[0]), self.img_size),
+    #                                                  RGB2BGR(tensor2numpy(
+    #                                                      denorm(fake_A2A[0]))),
+    #                                                  cam(tensor2numpy(
+    #                                                      x_tgt_fake_heatmap[0]), self.img_size),
+    #                                                  RGB2BGR(tensor2numpy(
+    #                                                      denorm(x_tgt_fake[0]))),
+    #                                                  cam(tensor2numpy(
+    #                                                      x_tgt_fake2A_heatmap[0]), self.img_size),
+    #                                                  RGB2BGR(tensor2numpy(denorm(x_tgt_fake2A[0])))), 0)), 1)
 
-          fake_A2A, _, fake_A2A_heatmap = self.genB2A(real_A)
-          fake_B2B, _, fake_B2B_heatmap = self.genA2B(real_B)
-
-          A2B = np.concatenate((A2B, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_A[0]))),
-                                                     cam(tensor2numpy(
-                                                         fake_A2A_heatmap[0]), self.img_size),
-                                                     RGB2BGR(tensor2numpy(
-                                                         denorm(fake_A2A[0]))),
-                                                     cam(tensor2numpy(
-                                                         fake_A2B_heatmap[0]), self.img_size),
-                                                     RGB2BGR(tensor2numpy(
-                                                         denorm(fake_A2B[0]))),
-                                                     cam(tensor2numpy(
-                                                         fake_A2B2A_heatmap[0]), self.img_size),
-                                                     RGB2BGR(tensor2numpy(denorm(fake_A2B2A[0])))), 0)), 1)
-
-          B2A = np.concatenate((B2A, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_B[0]))),
-                                                     cam(tensor2numpy(
-                                                         fake_B2B_heatmap[0]), self.img_size),
-                                                     RGB2BGR(tensor2numpy(
-                                                         denorm(fake_B2B[0]))),
-                                                     cam(tensor2numpy(
-                                                         fake_B2A_heatmap[0]), self.img_size),
-                                                     RGB2BGR(tensor2numpy(
-                                                         denorm(fake_B2A[0]))),
-                                                     cam(tensor2numpy(
-                                                         fake_B2A2B_heatmap[0]), self.img_size),
-                                                     RGB2BGR(tensor2numpy(denorm(fake_B2A2B[0])))), 0)), 1)
+    #       B2A = np.concatenate((B2A, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_B[0]))),
+    #                                                  cam(tensor2numpy(
+    #                                                      fake_B2B_heatmap[0]), self.img_size),
+    #                                                  RGB2BGR(tensor2numpy(
+    #                                                      denorm(fake_B2B[0]))),
+    #                                                  cam(tensor2numpy(
+    #                                                      fake_B2A_heatmap[0]), self.img_size),
+    #                                                  RGB2BGR(tensor2numpy(
+    #                                                      denorm(fake_B2A[0]))),
+    #                                                  cam(tensor2numpy(
+    #                                                      fake_B2A2B_heatmap[0]), self.img_size),
+    #                                                  RGB2BGR(tensor2numpy(denorm(fake_B2A2B[0])))), 0)), 1)
 
         cv2.imwrite(os.path.join(self.result_dir, self.dataset,
                     'img', 'A2B_%07d.png' % step), A2B * 255.0)
-        cv2.imwrite(os.path.join(self.result_dir, self.dataset,
-                    'img', 'B2A_%07d.png' % step), B2A * 255.0)
-        self.genA2B.train(), self.genB2A.train(), self.disGA.train(
-        ), self.disGB.train(), self.disLA.train(), self.disLB.train()
 
-      if step % self.save_freq == 0:
-        self.save(os.path.join(self.result_dir, self.dataset, 'model'), step)
+        self.g.train(), self.dis_global.train(), self.dis_local.train()
 
-      if step % 1000 == 0:
-        params = {}
-        params['genA2B'] = self.genA2B.state_dict()
-        params['genB2A'] = self.genB2A.state_dict()
-        params['disGA'] = self.disGA.state_dict()
-        params['disGB'] = self.disGB.state_dict()
-        params['disLA'] = self.disLA.state_dict()
-        params['disLB'] = self.disLB.state_dict()
-        torch.save(params, os.path.join(self.result_dir,
-                   self.dataset + '_params_latest.pt'))
+    #   if step % self.save_freq == 0:
+    #     self.save(os.path.join(self.result_dir, self.dataset, 'model'), step)
+
+    #   if step % 1000 == 0:
+    #     params = {}
+    #     params['g'] = self.g.state_dict()
+    #     params['disGB'] = self.dis_global.state_dict()
+    #     params['disLB'] = self.dis_local.state_dict()
+    #     torch.save(params, os.path.join(self.result_dir,
+    #                self.dataset + '_params_latest.pt'))
 
   def save(self, dir, step):
     params = {}
-    params['genA2B'] = self.genA2B.state_dict()
-    params['genB2A'] = self.genB2A.state_dict()
-    params['disGA'] = self.disGA.state_dict()
-    params['disGB'] = self.disGB.state_dict()
-    params['disLA'] = self.disLA.state_dict()
-    params['disLB'] = self.disLB.state_dict()
+    params['g'] = self.g.state_dict()
+    params['dis_global'] = self.dis_global.state_dict()
+    params['dis_local'] = self.dis_local.state_dict()
     torch.save(params, os.path.join(
         dir, self.dataset + '_params_%07d.pt' % step))
 
   def load(self, dir, step):
-    params = torch.load(os.path.join(
-        dir, self.dataset + '_params_%07d.pt' % step))
-    self.genA2B.load_state_dict(params['genA2B'])
-    self.genB2A.load_state_dict(params['genB2A'])
-    self.disGA.load_state_dict(params['disGA'])
-    self.disGB.load_state_dict(params['disGB'])
-    self.disLA.load_state_dict(params['disLA'])
-    self.disLB.load_state_dict(params['disLB'])
+    params = torch.load(
+        os.path.join(dir, self.dataset + '_params_%07d.pt' % step)
+    )
+    self.g.load_state_dict(params['g'])
+    self.dis_global.load_state_dict(params['dis_global'])
+    self.dis_local.load_state_dict(params['dis_local'])
 
   def test(self):
-    model_list = glob(os.path.join(
-        self.result_dir, self.dataset, 'model', '*.pt'))
-    if not len(model_list) == 0:
-      model_list.sort()
-      iter = int(model_list[-1].split('_')[-1].split('.')[0])
-      self.load(os.path.join(self.result_dir, self.dataset, 'model'), iter)
-      print(" [*] Load SUCCESS")
-    else:
-      print(" [*] Load FAILURE")
-      return
+    pass
+    # model_list = glob(os.path.join(
+    #     self.result_dir, self.dataset, 'model', '*.pt'))
+    # if not len(model_list) == 0:
+    #   model_list.sort()
+    #   iter = int(model_list[-1].split('_')[-1].split('.')[0])
+    #   self.load(os.path.join(self.result_dir, self.dataset, 'model'), iter)
+    #   print(" [*] Load SUCCESS")
+    # else:
+    #   print(" [*] Load FAILURE")
+    #   return
 
-    self.genA2B.eval(), self.genB2A.eval()
-    for n, (real_A, _) in enumerate(self.testA_loader):
-      real_A = real_A.to(self.device)
+    # self.g.eval()
+    # for n, (x_tgt_real, _) in enumerate(self.testA_loader):
+    #   x_tgt_real = x_tgt_real.to(self.device)
 
-      fake_A2B, _, fake_A2B_heatmap = self.genA2B(real_A)
+    #   x_tgt_fake, _, x_tgt_fake_heatmap = self.g(x_tgt_real)
 
-      fake_A2B2A, _, fake_A2B2A_heatmap = self.genB2A(fake_A2B)
+    #   A2B = np.concatenate((RGB2BGR(tensor2numpy(denorm(x_tgt_real[0]))),
+    #                         cam(tensor2numpy(
+    #                             fake_A2A_heatmap[0]), self.img_size),
+    #                         RGB2BGR(tensor2numpy(denorm(fake_A2A[0]))),
+    #                         cam(tensor2numpy(
+    #                             x_tgt_fake_heatmap[0]), self.img_size),
+    #                         RGB2BGR(tensor2numpy(denorm(x_tgt_fake[0]))),
+    #                         cam(tensor2numpy(
+    #                             x_tgt_fake2A_heatmap[0]), self.img_size),
+    #                         RGB2BGR(tensor2numpy(denorm(x_tgt_fake2A[0])))), 0)
 
-      fake_A2A, _, fake_A2A_heatmap = self.genB2A(real_A)
+    #   cv2.imwrite(os.path.join(self.result_dir, self.dataset,
+    #               'test', 'A2B_%d.png' % (n + 1)), A2B * 255.0)
 
-      A2B = np.concatenate((RGB2BGR(tensor2numpy(denorm(real_A[0]))),
-                            cam(tensor2numpy(
-                                fake_A2A_heatmap[0]), self.img_size),
-                            RGB2BGR(tensor2numpy(denorm(fake_A2A[0]))),
-                            cam(tensor2numpy(
-                                fake_A2B_heatmap[0]), self.img_size),
-                            RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))),
-                            cam(tensor2numpy(
-                                fake_A2B2A_heatmap[0]), self.img_size),
-                            RGB2BGR(tensor2numpy(denorm(fake_A2B2A[0])))), 0)
+    # for n, (real_B, _) in enumerate(self.testB_loader):
+    #   real_B = real_B.to(self.device)
 
-      cv2.imwrite(os.path.join(self.result_dir, self.dataset,
-                  'test', 'A2B_%d.png' % (n + 1)), A2B * 255.0)
+    #   fake_B2A2B, _, fake_B2A2B_heatmap = self.g(fake_B2A)
 
-    for n, (real_B, _) in enumerate(self.testB_loader):
-      real_B = real_B.to(self.device)
+    #   fake_B2B, _, fake_B2B_heatmap = self.g(real_B)
 
-      fake_B2A, _, fake_B2A_heatmap = self.genB2A(real_B)
+    #   B2A = np.concatenate((RGB2BGR(tensor2numpy(denorm(real_B[0]))),
+    #                         cam(tensor2numpy(
+    #                             fake_B2B_heatmap[0]), self.img_size),
+    #                         RGB2BGR(tensor2numpy(denorm(fake_B2B[0]))),
+    #                         cam(tensor2numpy(
+    #                             fake_B2A_heatmap[0]), self.img_size),
+    #                         RGB2BGR(tensor2numpy(denorm(fake_B2A[0]))),
+    #                         cam(tensor2numpy(
+    #                             fake_B2A2B_heatmap[0]), self.img_size),
+    #                         RGB2BGR(tensor2numpy(denorm(fake_B2A2B[0])))), 0)
 
-      fake_B2A2B, _, fake_B2A2B_heatmap = self.genA2B(fake_B2A)
-
-      fake_B2B, _, fake_B2B_heatmap = self.genA2B(real_B)
-
-      B2A = np.concatenate((RGB2BGR(tensor2numpy(denorm(real_B[0]))),
-                            cam(tensor2numpy(
-                                fake_B2B_heatmap[0]), self.img_size),
-                            RGB2BGR(tensor2numpy(denorm(fake_B2B[0]))),
-                            cam(tensor2numpy(
-                                fake_B2A_heatmap[0]), self.img_size),
-                            RGB2BGR(tensor2numpy(denorm(fake_B2A[0]))),
-                            cam(tensor2numpy(
-                                fake_B2A2B_heatmap[0]), self.img_size),
-                            RGB2BGR(tensor2numpy(denorm(fake_B2A2B[0])))), 0)
-
-      cv2.imwrite(os.path.join(self.result_dir, self.dataset,
-                  'test', 'B2A_%d.png' % (n + 1)), B2A * 255.0)
+    #   cv2.imwrite(os.path.join(self.result_dir, self.dataset,
+    #               'test', 'B2A_%d.png' % (n + 1)), B2A * 255.0)
 
   def translate(self):
-    model_list = glob(os.path.join(
-        self.result_dir, self.dataset, 'model', '*.pt'))
-    if not len(model_list) == 0:
-      model_list.sort()
-      self.load(os.path.join(self.result_dir,
-                self.dataset, 'model'), self.iteration)
-      print(" [*] Load SUCCESS")
-    else:
-      print(" [*] Load FAILURE")
-      return
+    pass
+    # model_list = glob(os.path.join(
+    #     self.result_dir, self.dataset, 'model', '*.pt'))
+    # if not len(model_list) == 0:
+    #   model_list.sort()
+    #   self.load(os.path.join(self.result_dir,
+    #             self.dataset, 'model'), self.iteration)
+    #   print(" [*] Load SUCCESS")
+    # else:
+    #   print(" [*] Load FAILURE")
+    #   return
 
-    if not os.path.exists('translations'):
-      os.mkdir('translations')
+    # if not os.path.exists('translations'):
+    #   os.mkdir('translations')
 
-    model_translations_dir = Path('translations', self.dataset)
-    if not os.path.exists(model_translations_dir):
-      os.mkdir(model_translations_dir)
+    # model_translations_dir = Path('translations', self.dataset)
+    # if not os.path.exists(model_translations_dir):
+    #   os.mkdir(model_translations_dir)
 
-    model_with_iters_translations_dir = Path(
-        model_translations_dir, f'iter-{self.iteration}'
-    )
-    if not os.path.exists(model_with_iters_translations_dir):
-      os.mkdir(model_with_iters_translations_dir)
+    # model_with_iters_translations_dir = Path(
+    #     model_translations_dir, f'iter-{self.iteration}'
+    # )
+    # if not os.path.exists(model_with_iters_translations_dir):
+    #   os.mkdir(model_with_iters_translations_dir)
 
-    train_translated_imgs_dir = Path(model_with_iters_translations_dir, 'train')
-    test_translated_imgs_dir = Path(model_with_iters_translations_dir, 'test')
-    full_translated_imgs_dir = Path(model_with_iters_translations_dir, 'full')
+    # train_translated_imgs_dir = Path(model_with_iters_translations_dir, 'train')
+    # test_translated_imgs_dir = Path(model_with_iters_translations_dir, 'test')
+    # full_translated_imgs_dir = Path(model_with_iters_translations_dir, 'full')
 
-    if not os.path.exists(train_translated_imgs_dir):
-      os.mkdir(train_translated_imgs_dir)
-    if not os.path.exists(test_translated_imgs_dir):
-      os.mkdir(test_translated_imgs_dir)
-    if not os.path.exists(full_translated_imgs_dir):
-      os.mkdir(full_translated_imgs_dir)
+    # if not os.path.exists(train_translated_imgs_dir):
+    #   os.mkdir(train_translated_imgs_dir)
+    # if not os.path.exists(test_translated_imgs_dir):
+    #   os.mkdir(test_translated_imgs_dir)
+    # if not os.path.exists(full_translated_imgs_dir):
+    #   os.mkdir(full_translated_imgs_dir)
 
-    self.genA2B.eval(), self.genB2A.eval()
+    # self.g.eval()
 
-    print('translating train...')
-    for n, (real_A, _) in enumerate(self.trainA_loader):
-      real_A = real_A.to(self.device)
-      img_path, _ = self.trainA_loader.dataset.samples[n]
-      img_name = Path(img_path).name.split('.')[0]
-      fake_A2B, _, _ = self.genA2B(real_A)
-      print(os.path.join(train_translated_imgs_dir, f'{img_name}_fake_B.png'))
-      cv2.imwrite(
-          os.path.join(train_translated_imgs_dir, f'{img_name}_fake_B.png'),
-          RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
-      )
-      cv2.imwrite(
-          os.path.join(full_translated_imgs_dir, f'{img_name}_fake_B.png'),
-          RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
-      )
+    # print('translating train...')
+    # for n, (x_tgt_real, _) in enumerate(self.trainA_loader):
+    #   x_tgt_real = x_tgt_real.to(self.device)
+    #   img_path, _ = self.trainA_loader.dataset.samples[n]
+    #   img_name = Path(img_path).name.split('.')[0]
+    #   x_tgt_fake, _, _ = self.g(x_tgt_real)
+    #   print(os.path.join(train_translated_imgs_dir, f'{img_name}_fake_B.png'))
+    #   cv2.imwrite(
+    #       os.path.join(train_translated_imgs_dir, f'{img_name}_fake_B.png'),
+    #       RGB2BGR(tensor2numpy(denorm(x_tgt_fake[0]))) * 255.0
+    #   )
+    #   cv2.imwrite(
+    #       os.path.join(full_translated_imgs_dir, f'{img_name}_fake_B.png'),
+    #       RGB2BGR(tensor2numpy(denorm(x_tgt_fake[0]))) * 255.0
+    #   )
 
-    print('translating test...')
-    for n, (real_A, _) in enumerate(self.testA_loader):
-      real_A = real_A.to(self.device)
-      img_path, _ = self.testA_loader.dataset.samples[n]
-      img_name = Path(img_path).name.split('.')[0]
-      fake_A2B, _, _ = self.genA2B(real_A)
-      print(os.path.join(test_translated_imgs_dir, f'{img_name}_fake_B.png'))
-      cv2.imwrite(
-          os.path.join(test_translated_imgs_dir, f'{img_name}_fake_B.png'),
-          RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
-      )
-      cv2.imwrite(
-          os.path.join(full_translated_imgs_dir, f'{img_name}_fake_B.png'),
-          RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
-      )
+    # print('translating test...')
+    # for n, (x_tgt_real, _) in enumerate(self.testA_loader):
+    #   x_tgt_real = x_tgt_real.to(self.device)
+    #   img_path, _ = self.testA_loader.dataset.samples[n]
+    #   img_name = Path(img_path).name.split('.')[0]
+    #   x_tgt_fake, _, _ = self.g(x_tgt_real)
+    #   print(os.path.join(test_translated_imgs_dir, f'{img_name}_fake_B.png'))
+    #   cv2.imwrite(
+    #       os.path.join(test_translated_imgs_dir, f'{img_name}_fake_B.png'),
+    #       RGB2BGR(tensor2numpy(denorm(x_tgt_fake[0]))) * 255.0
+    #   )
+    #   cv2.imwrite(
+    #       os.path.join(full_translated_imgs_dir, f'{img_name}_fake_B.png'),
+    #       RGB2BGR(tensor2numpy(denorm(x_tgt_fake[0]))) * 255.0
+    #   )
