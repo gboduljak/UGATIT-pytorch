@@ -4,6 +4,7 @@ from glob import glob
 from pathlib import Path
 
 from torch.utils.data import DataLoader
+from torchinfo import summary
 from torchvision import transforms
 from torchvision.datasets import ImageFolder
 
@@ -152,6 +153,11 @@ class UGATIT(object):
         batch_size=1,
         shuffle=False
     )
+    self.inv_normalize = transforms.Normalize(
+        mean=[-m/s for m, s in zip(mean, std)],
+        std=[1/s for s in std]
+    )
+
     """Prepare DANN"""
     self.dann = DANN.load_from_checkpoint(
         'dann-val_tgt_cls_acc=0.9364162087440491.ckpt',
@@ -203,6 +209,7 @@ class UGATIT(object):
     self.Rho_clipper = RhoClipper(0, 1)
 
   def train(self):
+    print(summary(self.g))
     self.g.train(), self.dis_global.train(), self.dis_local.train()
 
     start_iter = 1
@@ -259,10 +266,10 @@ class UGATIT(object):
       x_tgt_fake_labeled_src = self.g(x_tgt_real, f_src, x_src_class)
       x_tgt_fake_labeled_tgt = self.g(x_tgt_real, f_tgt, x_tgt_class)
 
-      real_GB_logit, real_GB_cam_logit, _ = self.dis_global(
-          x_tgt_real, x_tgt_class, cam=True)  # global
-      real_LB_logit, real_LB_cam_logit, _ = self.dis_local(
-          x_tgt_real, x_tgt_class, cam=True)  # local
+      real_GB_logit = self.dis_global(
+          x_tgt_real, x_tgt_class)  # global
+      real_LB_logit = self.dis_local(
+          x_tgt_real, x_tgt_class)  # local
 
       fake_GB_logit_1 = self.dis_global(
           x_tgt_fake_labeled_src, x_src_class
@@ -288,12 +295,12 @@ class UGATIT(object):
           fake_GB_logit_2,
           torch.zeros_like(fake_GB_logit_2).to(self.device)
       )
-      cam_nets = 2
+    #   cam_nets = 2
 
-      D_cam_loss_global = self.MSE_loss(
-          real_GB_cam_logit,
-          x_src_real_logits.repeat((1, cam_nets))
-      )
+    #   D_cam_loss_global = self.MSE_loss(
+    #       real_GB_cam_logit,
+    #       x_src_real_logits.repeat((1, cam_nets))
+    #   )
 
       D_ad_loss_local = self.MSE_loss(
           real_LB_logit,
@@ -306,14 +313,13 @@ class UGATIT(object):
           torch.zeros_like(fake_LB_logit_2).to(self.device)
       )
 
-      D_cam_loss_local = self.MSE_loss(
-          real_LB_cam_logit,
-          x_src_real_logits.repeat((1, cam_nets))
-      )
+    #   D_cam_loss_local = self.MSE_loss(
+    #       real_LB_cam_logit,
+    #       x_src_real_logits.repeat((1, cam_nets))
+    #   )
 
       Discriminator_loss = self.adv_weight * \
-          (D_ad_loss_global + D_ad_loss_local +
-           D_cam_loss_global + D_cam_loss_local)
+          (D_ad_loss_global + D_ad_loss_local)
       Discriminator_loss.backward()
       self.D_optim.step()
 
@@ -380,8 +386,10 @@ class UGATIT(object):
       )  # identity loss
 
       G_class = self.MSE_loss(
-          self.dann(x_tgt_fake_labeled_src), x_src_real_logits
+          self.dann(x_tgt_fake_labeled_src),
+          x_src_real_logits
       )
+
       Generator_loss = self.adv_weight * (G_ad_loss_global + G_ad_loss_local) + \
           self.cycle_weight * G_recon + self.identity_weight * \
           100 * G_identity + self.class_weight * G_class
@@ -392,16 +400,15 @@ class UGATIT(object):
       # clip parameter of AdaILN and ILN, applied after optimizer step
       self.g.apply(self.Rho_clipper)
 
-      train_status_line = "[%5d/%5d] time: %4.4f d_loss: %.8f, g_loss: %.8f" % (step,
-                                                                                self.iteration, time.time() - start_time, Discriminator_loss, Generator_loss)
+      train_status_line = "[%5d/%5d] time: %4.4f d_loss: %.8f, g_loss: %.8f, g_ad_loss_global:  %.8f, g_ad_loss_local:  %.8f  g_recon: %.8f, g_identity: %.8f, g_class: %.8f" % (step,
+                                                                                                                                                                                 self.iteration, time.time() - start_time, Discriminator_loss, Generator_loss, G_ad_loss_global, G_ad_loss_local, G_recon, G_identity, G_class)
 
       print(train_status_line)
       with open(os.path.join(self.result_dir, self.dataset, 'training_log.txt'), 'a') as tl:
         tl.write(f'{train_status_line}\n')
 
       if step % self.print_freq == 0:
-        train_sample_num = 5
-        test_sample_num = 5
+        train_sample_num = 10
         A2B = np.zeros((self.img_size * 4, 0, 3))
 
         self.g.eval(), self.dis_global.eval(), self.dis_local.eval()
@@ -422,10 +429,14 @@ class UGATIT(object):
           x_src_real = x_src_real.to(self.device)
           x_tgt_real = x_tgt_real.to(self.device)
           t = transforms.Compose(
-              [transforms.ToPILImage(),
-               transforms.Resize((256, 256)),
-               transforms.ToTensor()]
+              [
+                  self.inv_normalize,
+                  transforms.ToPILImage(),
+                  transforms.Resize((256, 256)),
+                  transforms.ToTensor()
+              ]
           )
+
           with torch.no_grad():
             f_src = self.dann.extract_features(x_src_real)
             f_tgt = self.dann.extract_features(x_tgt_real)
@@ -441,78 +452,28 @@ class UGATIT(object):
 
           A2B = np.concatenate((A2B, np.concatenate((
               RGB2BGR(tensor2numpy(denorm(x_tgt_real[0]))),
-              RGB2BGR(tensor2numpy(denorm(t(x_src_real[0])))),
-              #   cam(tensor2numpy(
-              #       x_tgt_fake_labeled_tgt_heatmap[0]), self.img_size),
+              RGB2BGR(tensor2numpy(t(x_src_real[0]))),
               RGB2BGR(tensor2numpy(
                   denorm(x_tgt_fake_labeled_tgt[0]))),
-              #   cam(tensor2numpy(
-              #       x_tgt_fake_labeled_src_heatmap[0]), self.img_size),
+
               RGB2BGR(tensor2numpy(denorm(x_tgt_fake_labeled_src[0])))), 0)), 1
           )
-
-    #     for _ in range(test_sample_num):
-    #       try:
-    #         x_tgt_real, _ = next(testA_iter)
-    #       except:
-    #         testA_iter = iter(self.testA_loader)
-    #         x_tgt_real, _ = next(testA_iter)
-
-    #       try:
-    #         real_B, _ = next(testB_iter)
-    #       except:
-    #         testB_iter = iter(self.testB_loader)
-    #         real_B, _ = next(testB_iter)
-    #       x_tgt_real, real_B = x_tgt_real.to(
-    #           self.device), real_B.to(self.device)
-
-    #       x_tgt_fake, _, x_tgt_fake_heatmap = self.g(x_tgt_real)
-
-    #       fake_B2A2B, _, fake_B2A2B_heatmap = self.g(fake_B2A)
-
-    #       fake_B2B, _, fake_B2B_heatmap = self.g(real_B)
-
-    #       A2B = np.concatenate((A2B, np.concatenate((RGB2BGR(tensor2numpy(denorm(x_tgt_real[0]))),
-    #                                                  cam(tensor2numpy(
-    #                                                      fake_A2A_heatmap[0]), self.img_size),
-    #                                                  RGB2BGR(tensor2numpy(
-    #                                                      denorm(fake_A2A[0]))),
-    #                                                  cam(tensor2numpy(
-    #                                                      x_tgt_fake_heatmap[0]), self.img_size),
-    #                                                  RGB2BGR(tensor2numpy(
-    #                                                      denorm(x_tgt_fake[0]))),
-    #                                                  cam(tensor2numpy(
-    #                                                      x_tgt_fake2A_heatmap[0]), self.img_size),
-    #                                                  RGB2BGR(tensor2numpy(denorm(x_tgt_fake2A[0])))), 0)), 1)
-
-    #       B2A = np.concatenate((B2A, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_B[0]))),
-    #                                                  cam(tensor2numpy(
-    #                                                      fake_B2B_heatmap[0]), self.img_size),
-    #                                                  RGB2BGR(tensor2numpy(
-    #                                                      denorm(fake_B2B[0]))),
-    #                                                  cam(tensor2numpy(
-    #                                                      fake_B2A_heatmap[0]), self.img_size),
-    #                                                  RGB2BGR(tensor2numpy(
-    #                                                      denorm(fake_B2A[0]))),
-    #                                                  cam(tensor2numpy(
-    #                                                      fake_B2A2B_heatmap[0]), self.img_size),
-    #                                                  RGB2BGR(tensor2numpy(denorm(fake_B2A2B[0])))), 0)), 1)
 
         cv2.imwrite(os.path.join(self.result_dir, self.dataset,
                     'img', 'A2B_%07d.png' % step), A2B * 255.0)
 
         self.g.train(), self.dis_global.train(), self.dis_local.train()
 
-    #   if step % self.save_freq == 0:
-    #     self.save(os.path.join(self.result_dir, self.dataset, 'model'), step)
+      if step % self.save_freq == 0:
+        self.save(os.path.join(self.result_dir, self.dataset, 'model'), step)
 
-    #   if step % 1000 == 0:
-    #     params = {}
-    #     params['g'] = self.g.state_dict()
-    #     params['disGB'] = self.dis_global.state_dict()
-    #     params['disLB'] = self.dis_local.state_dict()
-    #     torch.save(params, os.path.join(self.result_dir,
-    #                self.dataset + '_params_latest.pt'))
+      if step % 1000 == 0:
+        params = {}
+        params['g'] = self.g.state_dict()
+        params['dis_global'] = self.dis_global.state_dict()
+        params['dis_local'] = self.dis_local.state_dict()
+        torch.save(params, os.path.join(self.result_dir,
+                   self.dataset + '_params_latest.pt'))
 
   def save(self, dir, step):
     params = {}

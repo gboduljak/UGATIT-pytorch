@@ -37,7 +37,7 @@ def parse_args():
   parser.add_argument('--identity_weight', type=int,
                       default=10, help='Weight for Identity')
   parser.add_argument('--class_weight', type=int,
-                      default=10, help='Weight for Classification of generated images')
+                      default=1, help='Weight for Classification of generated images')
   parser.add_argument('--cam_weight', type=int,
                       default=100, help='Weight for CAM')
 
@@ -90,6 +90,7 @@ def check_args(args):
 
 
 """main"""
+
 
 def main():
   # parse arguments

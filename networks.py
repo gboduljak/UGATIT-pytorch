@@ -256,7 +256,7 @@ class Generator(nn.Module):
     self.condition_on_latent = condition_on_latent
     # Down-Sampling
 
-    n_downsampling = 3
+    n_downsampling = 2
     self.n_downsampling = n_downsampling
 
     DownBlock = []
@@ -510,26 +510,27 @@ class Discriminator(nn.Module):
     for layer in self.down:
       x = layer(x, cond_vec)
 
-    gap = torch.nn.functional.adaptive_avg_pool2d(x, 1)
-    gap_logit = self.gap_fc(gap.view(x.shape[0], -1))
-    gap_weight = list(self.gap_fc.parameters())[0][c].view((1, -1))
-    gap = x * gap_weight.unsqueeze(2).unsqueeze(3)
+    # gap = torch.nn.functional.adaptive_avg_pool2d(x, 1)
+    # gap_logit = self.gap_fc(gap.view(x.shape[0], -1))
+    # gap_weight = list(self.gap_fc.parameters())[0][c].view((1, -1))
+    # gap = x * gap_weight.unsqueeze(2).unsqueeze(3)
 
-    gmp = torch.nn.functional.adaptive_max_pool2d(x, 1)
-    gmp_logit = self.gmp_fc(gmp.view(x.shape[0], -1))
-    gmp_weight = list(self.gmp_fc.parameters())[0][c].view((1, -1))
-    gmp = x * gmp_weight.unsqueeze(2).unsqueeze(3)
+    # gmp = torch.nn.functional.adaptive_max_pool2d(x, 1)
+    # gmp_logit = self.gmp_fc(gmp.view(x.shape[0], -1))
+    # gmp_weight = list(self.gmp_fc.parameters())[0][c].view((1, -1))
+    # gmp = x * gmp_weight.unsqueeze(2).unsqueeze(3)
 
-    cam_logit = torch.cat([gap_logit, gmp_logit], 1)
-    x = torch.cat([gap, gmp], 1)
-    x = self.leaky_relu(self.conv1x1(x))
-    heatmap = torch.sum(x, dim=1, keepdim=True)
+    # cam_logit = torch.cat([gap_logit, gmp_logit], 1)
+    # x = torch.cat([gap, gmp], 1)
+    # x = self.leaky_relu(self.conv1x1(x))
+    # heatmap = torch.sum(x, dim=1, keepdim=True)
 
     x = self.pad(x)
     out = self.conv(x)
 
     if cam:
-      return out, cam_logit, heatmap
+      # return out, cam_logit, heatmap
+      return out
     else:
       return out
 
