@@ -19,7 +19,7 @@ def parse_args():
                       help='The number of training iterations')
   parser.add_argument('--batch_size', type=int, default=1,
                       help='The size of batch size')
-  parser.add_argument('--print_freq', type=int, default=10,
+  parser.add_argument('--print_freq', type=int, default=1000,
                       help='The number of image print freq')
   parser.add_argument('--save_freq', type=int, default=100000,
                       help='The number of model save freq')
