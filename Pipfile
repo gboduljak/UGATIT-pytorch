@@ -11,6 +11,7 @@ torch = "*"
 torchvision = "*"
 einops = "*"
 opencv-python = "*"
+strenum = "*"
 
 [dev-packages]
 

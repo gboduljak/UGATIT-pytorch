@@ -47,6 +47,7 @@ class UGATIT(object):
 
     """ Generator """
     self.n_res = args.n_res
+    self.upsampling_type = args.upsampling_type
 
     """ Discriminator """
     self.n_dis = args.n_dis
@@ -76,6 +77,7 @@ class UGATIT(object):
 
     print("##### Generator #####")
     print("# residual blocks : ", self.n_res)
+    print("# upsampling type : ", self.upsampling_type)
 
     print()
 
@@ -103,8 +105,7 @@ class UGATIT(object):
     """ DataLoader """
     train_transform = transforms.Compose([
         transforms.RandomHorizontalFlip(),
-        transforms.Resize((self.img_size + 30, self.img_size+30)),
-        transforms.RandomCrop(self.img_size),
+        transforms.Resize((self.img_size, self.img_size)),
         transforms.ToTensor(),
         transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
     ])
@@ -141,9 +142,15 @@ class UGATIT(object):
 
     """ Define Generator, Discriminator """
     self.genA2B = ResnetGenerator(input_nc=3, output_nc=3, ngf=self.ch,
-                                  n_blocks=self.n_res, img_size=self.img_size, light=self.light).to(self.device)
+                                  n_blocks=self.n_res,
+                                  img_size=self.img_size,
+                                  upsampling_type=self.upsampling_type,
+                                  light=self.light).to(self.device)
     self.genB2A = ResnetGenerator(input_nc=3, output_nc=3, ngf=self.ch,
-                                  n_blocks=self.n_res, img_size=self.img_size, light=self.light).to(self.device)
+                                  n_blocks=self.n_res,
+                                  img_size=self.img_size,
+                                  upsampling_type=self.upsampling_type,
+                                  light=self.light).to(self.device)
     self.disGA = Discriminator(
         input_nc=3, ndf=self.ch, n_layers=7).to(self.device)
     self.disGB = Discriminator(

@@ -1,5 +1,6 @@
 import argparse
 
+from networks import UpsamplingType
 from UGATIT import UGATIT
 from utils import *
 
@@ -46,6 +47,10 @@ def parse_args():
                       help='The number of resblock')
   parser.add_argument('--n_dis', type=int, default=6,
                       help='The number of discriminator layer')
+  parser.add_argument('--upsampling_type', type=str, default='paper',
+                      choices=[UpsamplingType.PAPER,
+                               UpsamplingType.CONCAT_SKIP],
+                      help='Set upsampling type')
 
   parser.add_argument('--img_size', type=int, default=256,
                       help='The size of image')
