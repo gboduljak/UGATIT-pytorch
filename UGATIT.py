@@ -106,7 +106,8 @@ class UGATIT(object):
     """ DataLoader """
     train_transform = transforms.Compose([
         transforms.RandomHorizontalFlip(),
-        transforms.Resize((self.img_size, self.img_size)),
+        transforms.Resize((self.img_size + 30, self.img_size+30)),
+        transforms.RandomCrop(self.img_size),
         transforms.ToTensor(),
         transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
     ])
