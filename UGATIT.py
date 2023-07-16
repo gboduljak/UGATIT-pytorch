@@ -1,13 +1,18 @@
 import itertools
+import os
+import random
 import time
 from glob import glob
 from pathlib import Path
 
+import numpy as np
+import torch
 from torch.utils.data import DataLoader
 from torchvision import transforms
 
 from dataset import ImageFolder
 from networks import *
+from seed import get_seeded_generator, seed_everything, seeded_worker_init_fn
 from utils import *
 
 
@@ -52,6 +57,7 @@ class UGATIT(object):
     self.device = args.device
     self.benchmark_flag = args.benchmark_flag
     self.resume = args.resume
+    self.seed = args.seed
 
     if torch.backends.cudnn.enabled and self.benchmark_flag:
       print('set benchmark !')
@@ -64,6 +70,7 @@ class UGATIT(object):
     print("# dataset : ", self.dataset)
     print("# batch_size : ", self.batch_size)
     print("# iteration per epoch : ", self.iteration)
+    print("# seed : ", self.seed)
 
     print()
 
@@ -88,6 +95,11 @@ class UGATIT(object):
   ##################################################################################
 
   def build_model(self):
+    """ Seed everything """
+    seed_everything(self.seed)
+    trainA_dataloader_generator = get_seeded_generator(self.seed)
+    trainB_dataloader_generator = get_seeded_generator(self.seed)
+
     """ DataLoader """
     train_transform = transforms.Compose([
         transforms.RandomHorizontalFlip(),
@@ -111,9 +123,19 @@ class UGATIT(object):
     self.testB = ImageFolder(os.path.join(
         'dataset', self.dataset, 'testB'), test_transform)
     self.trainA_loader = DataLoader(
-        self.trainA, batch_size=self.batch_size, shuffle=True)
+        self.trainA,
+        batch_size=self.batch_size,
+        worker_init_fn=seeded_worker_init_fn,
+        generator=trainA_dataloader_generator,
+        shuffle=True
+    )
     self.trainB_loader = DataLoader(
-        self.trainB, batch_size=self.batch_size, shuffle=True)
+        self.trainB,
+        batch_size=self.batch_size,
+        worker_init_fn=seeded_worker_init_fn,
+        generator=trainB_dataloader_generator,
+        shuffle=True
+    )
     self.testA_loader = DataLoader(self.testA, batch_size=1, shuffle=False)
     self.testB_loader = DataLoader(self.testB, batch_size=1, shuffle=False)
 
