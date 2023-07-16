@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
+from torchinfo import summary
 from torchvision import transforms
 
 from dataset import ImageFolder
@@ -76,7 +77,6 @@ class UGATIT(object):
 
     print("##### Generator #####")
     print("# residual blocks : ", self.n_res)
-
     print()
 
     print("##### Discriminator #####")
@@ -152,6 +152,24 @@ class UGATIT(object):
         input_nc=3, ndf=self.ch, n_layers=5).to(self.device)
     self.disLB = Discriminator(
         input_nc=3, ndf=self.ch, n_layers=5).to(self.device)
+    print('Generator:')
+    print(self.genA2B)
+    print(f'total params: {get_total_model_params(self.genA2B)}')
+    print(
+        f'total trainable params: {get_total_trainable_model_params(self.genA2B)}'
+    )
+    print('Global Discriminator:')
+    print(self.disGB)
+    print(f'total params: {get_total_model_params(self.disGB)}')
+    print(
+        f'total trainable params: {get_total_trainable_model_params(self.disGB)}'
+    )
+    print('Local Discriminator:')
+    print(self.disLB)
+    print(f'total params: {get_total_model_params(self.disLB)}')
+    print(
+        f'total trainable params: {get_total_trainable_model_params(self.disLB)}'
+    )
 
     """ Define Loss """
     self.L1_loss = nn.L1Loss().to(self.device)
