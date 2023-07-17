@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import torch_fidelity
 from torch.utils.data import DataLoader
 from torchinfo import summary
 from torchvision import transforms
@@ -34,6 +35,7 @@ class UGATIT(object):
 
     self.batch_size = args.batch_size
     self.print_freq = args.print_freq
+    self.val_freq = args.val_freq
     self.save_freq = args.save_freq
 
     self.lr = args.lr
@@ -118,6 +120,12 @@ class UGATIT(object):
         'dataset', self.dataset, 'trainA'), train_transform)
     self.trainB = ImageFolder(os.path.join(
         'dataset', self.dataset, 'trainB'), train_transform)
+    self.valA = ImageFolder(os.path.join(
+        'dataset', self.dataset, 'valA'), test_transform
+    )
+    self.valB = ImageFolder(os.path.join(
+        'dataset', self.dataset, 'valB'), test_transform
+    )
     self.testA = ImageFolder(os.path.join(
         'dataset', self.dataset, 'testA'), test_transform)
     self.testB = ImageFolder(os.path.join(
@@ -136,6 +144,8 @@ class UGATIT(object):
         generator=trainB_dataloader_generator,
         shuffle=True
     )
+    self.valA_loader = DataLoader(self.valA, batch_size=1, shuffle=False)
+    self.valB_loader = DataLoader(self.valB, batch_size=1, shuffle=False)
     self.testA_loader = DataLoader(self.testA, batch_size=1, shuffle=False)
     self.testB_loader = DataLoader(self.testB, batch_size=1, shuffle=False)
 
@@ -463,6 +473,9 @@ class UGATIT(object):
         torch.save(params, os.path.join(self.result_dir,
                    self.dataset + '_params_latest.pt'))
 
+      if step % self.val_freq == 0:
+        self.val(step)
+
   def save(self, dir, step):
     params = {}
     params['genA2B'] = self.genA2B.state_dict()
@@ -483,6 +496,60 @@ class UGATIT(object):
     self.disGB.load_state_dict(params['disGB'])
     self.disLA.load_state_dict(params['disLA'])
     self.disLB.load_state_dict(params['disLB'])
+
+  def val(self, step: int):
+
+    model_val_translations_dir = Path(self.result_dir, self.dataset, 'val')
+    if not os.path.exists(model_val_translations_dir):
+      os.mkdir(model_val_translations_dir)
+
+    model_with_step_translations_dir = Path(
+        model_val_translations_dir,
+        f'step-{step}'
+    )
+
+    if not os.path.exists(model_with_step_translations_dir):
+      os.mkdir(model_with_step_translations_dir)
+
+    self.genA2B.eval()
+
+    print('translating val...')
+    for n, (real_A, _) in enumerate(self.valA_loader):
+      real_A = real_A.to(self.device)
+      img_path, _ = self.valA_loader.dataset.samples[n]
+      img_name = Path(img_path).name.split('.')[0]
+      fake_A2B, _, _ = self.genA2B(real_A)
+      cv2.imwrite(
+          os.path.join(model_with_step_translations_dir,
+                       f'{img_name}_fake_B.png'),
+          RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
+      )
+    # compute metrics
+    target_real_val_dir = os.path.join(
+        'dataset',
+        self.dataset,
+        'valB'
+    )
+    metrics = torch_fidelity.calculate_metrics(
+        input1=str(target_real_val_dir),
+        input2=str(Path(model_with_step_translations_dir)),  # fake dir,
+        isc=True,
+        fid=True,
+        verbose=False,
+        rng_seed=self.seed,
+        cuda=torch.cuda.is_available(),
+    )
+    with open(os.path.join(model_val_translations_dir, 'val_log.txt'), 'a') as tl:
+      tl.write(f'step:{step}\n')
+      tl.write(
+          f'inception_score_mean: {metrics["inception_score_mean"]}\n'
+      )
+      tl.write(
+          f'inception_score_std: {metrics["inception_score_std"]}\n',
+      )
+      tl.write(
+          f'frechet_inception_distance: {metrics["frechet_inception_distance"]}\n'
+      )
 
   def test(self):
     model_list = glob(os.path.join(

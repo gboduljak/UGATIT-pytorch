@@ -12,6 +12,7 @@ torchvision = "*"
 einops = "*"
 opencv-python = "*"
 torchinfo = "*"
+torch-fidelity = "*"
 
 [dev-packages]
 

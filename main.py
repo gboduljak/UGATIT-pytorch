@@ -22,6 +22,8 @@ def parse_args():
                       help='The size of batch size')
   parser.add_argument('--print_freq', type=int, default=1000,
                       help='The number of image print freq')
+  parser.add_argument('--val_freq', type=int, default=25000,
+                      help='The number of val freq')
   parser.add_argument('--save_freq', type=int, default=100000,
                       help='The number of model save freq')
   parser.add_argument('--decay_flag', type=str2bool,
