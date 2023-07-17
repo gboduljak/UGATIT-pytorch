@@ -13,6 +13,7 @@ einops = "*"
 opencv-python = "*"
 strenum = "*"
 torchinfo = "*"
+torch-fidelity = "*"
 
 [dev-packages]
 
