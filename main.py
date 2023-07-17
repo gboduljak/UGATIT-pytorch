@@ -79,8 +79,6 @@ def check_args(args):
   check_folder(os.path.join(args.result_dir, args.dataset, 'model'))
   check_folder(os.path.join(args.result_dir, args.dataset, 'img'))
   check_folder(os.path.join(args.result_dir, args.dataset, 'test'))
-  with open(os.path.join(args.result_dir, args.dataset, 'training_log.txt'), 'w'):
-    pass
   # --epoch
   try:
     assert args.epoch >= 1
