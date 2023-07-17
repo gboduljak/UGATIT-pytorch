@@ -343,7 +343,7 @@ class UGATIT(object):
                                                                                 self.iteration, time.time() - start_time, Discriminator_loss, Generator_loss)
 
       print(train_status_line)
-      with open(os.path.join(self.result_dir, self.dataset, 'training_log.txt'), 'a') as tl:
+      with open(os.path.join(self.result_dir, self.dataset, 'train_log.txt'), 'a') as tl:
         tl.write(f'{train_status_line}\n')
 
       if step % self.print_freq == 0:
