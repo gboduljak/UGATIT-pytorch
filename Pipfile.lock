@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "506b5453ad0e35aa544887fd471c865171a56a2146f8da408ec7f128b57a6cb1"
+            "sha256": "ecd29f80e0c1e4a7094753a61a84eb6860dec3a52dd99d02d6ba2837783e4226"
         },
         "pipfile-spec": 6,
         "requires": {
@@ -313,6 +313,14 @@
             ],
             "index": "pypi",
             "version": "==10.0.0"
+        },
+        "pytorch-fid": {
+            "hashes": [
+                "sha256:0e1d4fe66441a8dff2a2aca31394e9389fb197dfeff046f2f971f271d4137767",
+                "sha256:1c80d112c9cf5ebcbcc428a0b7ea615c302805ad6780ec29e8e2955ba31571c8"
+            ],
+            "index": "pypi",
+            "version": "==0.3.0"
         },
         "requests": {
             "hashes": [
