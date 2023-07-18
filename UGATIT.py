@@ -530,7 +530,7 @@ class UGATIT(object):
       fake_A2B, _, _ = self.genA2B(real_A)
       cv2.imwrite(
           os.path.join(model_with_step_translations_dir,
-                       f'{img_name}_fake_B.png'),
+                       f'{img_name}_fake_B.jpg'),
           RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
       )
     # compute metrics
@@ -667,13 +667,13 @@ class UGATIT(object):
       img_path, _ = self.trainA_loader.dataset.samples[n]
       img_name = Path(img_path).name.split('.')[0]
       fake_A2B, _, _ = self.genA2B(real_A)
-      print(os.path.join(train_translated_imgs_dir, f'{img_name}_fake_B.png'))
+      print(os.path.join(train_translated_imgs_dir, f'{img_name}_fake_B.jpg'))
       cv2.imwrite(
-          os.path.join(train_translated_imgs_dir, f'{img_name}_fake_B.png'),
+          os.path.join(train_translated_imgs_dir, f'{img_name}_fake_B.jpg'),
           RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
       )
       cv2.imwrite(
-          os.path.join(full_translated_imgs_dir, f'{img_name}_fake_B.png'),
+          os.path.join(full_translated_imgs_dir, f'{img_name}_fake_B.jpg'),
           RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
       )
     if val_translated_imgs_dir:
@@ -683,13 +683,13 @@ class UGATIT(object):
         img_path, _ = self.valA_loader.dataset.samples[n]
         img_name = Path(img_path).name.split('.')[0]
         fake_A2B, _, _ = self.genA2B(real_A)
-        print(os.path.join(val_translated_imgs_dir, f'{img_name}_fake_B.png'))
+        print(os.path.join(val_translated_imgs_dir, f'{img_name}_fake_B.jpg'))
         cv2.imwrite(
-            os.path.join(val_translated_imgs_dir, f'{img_name}_fake_B.png'),
+            os.path.join(val_translated_imgs_dir, f'{img_name}_fake_B.jpg'),
             RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
         )
         cv2.imwrite(
-            os.path.join(full_translated_imgs_dir, f'{img_name}_fake_B.png'),
+            os.path.join(full_translated_imgs_dir, f'{img_name}_fake_B.jpg'),
             RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
         )
     print('translating test...')
@@ -698,12 +698,12 @@ class UGATIT(object):
       img_path, _ = self.testA_loader.dataset.samples[n]
       img_name = Path(img_path).name.split('.')[0]
       fake_A2B, _, _ = self.genA2B(real_A)
-      print(os.path.join(test_translated_imgs_dir, f'{img_name}_fake_B.png'))
+      print(os.path.join(test_translated_imgs_dir, f'{img_name}_fake_B.jpg'))
       cv2.imwrite(
-          os.path.join(test_translated_imgs_dir, f'{img_name}_fake_B.png'),
+          os.path.join(test_translated_imgs_dir, f'{img_name}_fake_B.jpg'),
           RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
       )
       cv2.imwrite(
-          os.path.join(full_translated_imgs_dir, f'{img_name}_fake_B.png'),
+          os.path.join(full_translated_imgs_dir, f'{img_name}_fake_B.jpg'),
           RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
       )
