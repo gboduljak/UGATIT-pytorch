@@ -645,6 +645,8 @@ class UGATIT(object):
       os.mkdir(model_with_iters_translations_dir)
 
     train_translated_imgs_dir = Path(model_with_iters_translations_dir, 'train')
+    if self.valA:
+      val_translated_imgs_dir = Path(model_with_iters_translations_dir, 'val')
     test_translated_imgs_dir = Path(model_with_iters_translations_dir, 'test')
     full_translated_imgs_dir = Path(model_with_iters_translations_dir, 'full')
 
@@ -652,6 +654,8 @@ class UGATIT(object):
       os.mkdir(train_translated_imgs_dir)
     if not os.path.exists(test_translated_imgs_dir):
       os.mkdir(test_translated_imgs_dir)
+    if val_translated_imgs_dir and not os.path.exists(val_translated_imgs_dir):
+      os.mkdir(val_translated_imgs_dir)
     if not os.path.exists(full_translated_imgs_dir):
       os.mkdir(full_translated_imgs_dir)
 
@@ -672,7 +676,22 @@ class UGATIT(object):
           os.path.join(full_translated_imgs_dir, f'{img_name}_fake_B.png'),
           RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
       )
-
+    if val_translated_imgs_dir:
+      print('translating val...')
+      for n, (real_A, _) in enumerate(self.valA_loader):
+        real_A = real_A.to(self.device)
+        img_path, _ = self.valA_loader.dataset.samples[n]
+        img_name = Path(img_path).name.split('.')[0]
+        fake_A2B, _, _ = self.genA2B(real_A)
+        print(os.path.join(val_translated_imgs_dir, f'{img_name}_fake_B.png'))
+        cv2.imwrite(
+            os.path.join(val_translated_imgs_dir, f'{img_name}_fake_B.png'),
+            RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
+        )
+        cv2.imwrite(
+            os.path.join(full_translated_imgs_dir, f'{img_name}_fake_B.png'),
+            RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
+        )
     print('translating test...')
     for n, (real_A, _) in enumerate(self.testA_loader):
       real_A = real_A.to(self.device)
