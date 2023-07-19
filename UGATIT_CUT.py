@@ -232,7 +232,7 @@ class UGATIT_CUT(object):
         betas=(0.5, 0.999),
         weight_decay=self.weight_decay
     )
-
+    self.F_optim = None  # not initialized now
     """ Define Rho clipper to constraint the value of rho in AdaILN and ILN"""
     self.Rho_clipper = RhoClipper(0, 1)
 
