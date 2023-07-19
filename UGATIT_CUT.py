@@ -207,7 +207,7 @@ class UGATIT_CUT(object):
     self.BCE_loss = nn.BCEWithLogitsLoss().to(self.device)
     self.NCE_losses = []
 
-    self.nce_layers = [0, 5, 9, 12, 16]  # hardcoded for now
+    self.nce_layers = [0, 5, 9, 12, 14, 16, 18, 20]  # hardcoded for now
     for _ in self.nce_layers:
       self.NCE_losses.append(
           PatchNCELoss(
@@ -308,23 +308,24 @@ class UGATIT_CUT(object):
 
       fake_A2B, _, _ = self.genA2B(real_A)
 
-      real_GB_logit, real_GB_cam_logit, _ = self.disGB(real_B)
+      # real_GB_logit, real_GB_cam_logit, _ = self.disGB(real_B)
       real_LB_logit, real_LB_cam_logit, _ = self.disLB(real_B)
 
-      fake_GB_logit, fake_GB_cam_logit, _ = self.disGB(fake_A2B)
+      # fake_GB_logit, fake_GB_cam_logit, _ = self.disGB(fake_A2B)
       fake_LB_logit, fake_LB_cam_logit, _ = self.disLB(fake_A2B)
 
-      D_ad_loss_GB = self.MSE_loss(real_GB_logit, torch.ones_like(real_GB_logit).to(
-          self.device)) + self.MSE_loss(fake_GB_logit, torch.zeros_like(fake_GB_logit).to(self.device))
-      D_ad_cam_loss_GB = self.MSE_loss(real_GB_cam_logit, torch.ones_like(real_GB_cam_logit).to(
-          self.device)) + self.MSE_loss(fake_GB_cam_logit, torch.zeros_like(fake_GB_cam_logit).to(self.device))
+      # D_ad_loss_GB = self.MSE_loss(real_GB_logit, torch.ones_like(real_GB_logit).to(
+      #     self.device)) + self.MSE_loss(fake_GB_logit, torch.zeros_like(fake_GB_logit).to(self.device))
+      # D_ad_cam_loss_GB = self.MSE_loss(real_GB_cam_logit, torch.ones_like(real_GB_cam_logit).to(
+      #     self.device)) + self.MSE_loss(fake_GB_cam_logit, torch.zeros_like(fake_GB_cam_logit).to(self.device))
       D_ad_loss_LB = self.MSE_loss(real_LB_logit, torch.ones_like(real_LB_logit).to(
           self.device)) + self.MSE_loss(fake_LB_logit, torch.zeros_like(fake_LB_logit).to(self.device))
       D_ad_cam_loss_LB = self.MSE_loss(real_LB_cam_logit, torch.ones_like(real_LB_cam_logit).to(
           self.device)) + self.MSE_loss(fake_LB_cam_logit, torch.zeros_like(fake_LB_cam_logit).to(self.device))
 
-      Discriminator_loss = self.adv_weight * \
-          (D_ad_loss_GB + D_ad_cam_loss_GB + D_ad_loss_LB + D_ad_cam_loss_LB)
+      # Discriminator_loss = self.adv_weight * \
+      #     (D_ad_loss_GB + D_ad_cam_loss_GB + D_ad_loss_LB + D_ad_cam_loss_LB)
+      Discriminator_loss = self.adv_weight * (D_ad_loss_LB + D_ad_cam_loss_LB)
       Discriminator_loss.backward()
       self.D_optim.step()
 
@@ -339,10 +340,10 @@ class UGATIT_CUT(object):
       fake_GB_logit, fake_GB_cam_logit, _ = self.disGB(fake_A2B)
       fake_LB_logit, fake_LB_cam_logit, _ = self.disLB(fake_A2B)
 
-      G_ad_loss_GB = self.MSE_loss(
-          fake_GB_logit, torch.ones_like(fake_GB_logit).to(self.device))
-      G_ad_cam_loss_GB = self.MSE_loss(
-          fake_GB_cam_logit, torch.ones_like(fake_GB_cam_logit).to(self.device))
+      # G_ad_loss_GB = self.MSE_loss(
+      #     fake_GB_logit, torch.ones_like(fake_GB_logit).to(self.device))
+      # G_ad_cam_loss_GB = self.MSE_loss(
+      #     fake_GB_cam_logit, torch.ones_like(fake_GB_cam_logit).to(self.device))
       G_ad_loss_LB = self.MSE_loss(
           fake_LB_logit, torch.ones_like(fake_LB_logit).to(self.device))
       G_ad_cam_loss_LB = self.MSE_loss(
@@ -357,8 +358,8 @@ class UGATIT_CUT(object):
       loss_NCE_both = (loss_NCE_X + loss_NCE_Y) * 0.5
 
       Generator_loss = self.adv_weight * (
-          G_ad_loss_GB +
-          G_ad_cam_loss_GB +
+          # G_ad_loss_GB +
+          # G_ad_cam_loss_GB +
           G_ad_loss_LB +
           G_ad_cam_loss_LB
       ) + loss_NCE_both + self.cam_weight * G_cam_loss_B
