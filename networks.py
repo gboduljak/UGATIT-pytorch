@@ -96,8 +96,6 @@ class ResnetGenerator(nn.Module):
       if layer_idx in self.nce_layers:
         nce_outs.append(x)
 
-    x = self.DownBlock(input)
-
     gap = torch.nn.functional.adaptive_avg_pool2d(x, 1)
     gap_logit = self.gap_fc(gap.view(x.shape[0], -1))
     gap_weight = list(self.gap_fc.parameters())[0]
