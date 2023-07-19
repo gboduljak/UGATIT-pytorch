@@ -207,7 +207,7 @@ class UGATIT_CUT(object):
     self.BCE_loss = nn.BCEWithLogitsLoss().to(self.device)
     self.NCE_losses = []
 
-    self.nce_layers = [0, 5, 9, 12, 16, 20]  # hardcoded for now
+    self.nce_layers = [0, 5, 9, 12, 16]  # hardcoded for now
     for _ in self.nce_layers:
       self.NCE_losses.append(
           PatchNCELoss(
@@ -247,6 +247,7 @@ class UGATIT_CUT(object):
     feat_q_pool, _ = self.netF(feat_q, self.nce_n_patches, sample_ids)
 
     if should_init_optimizer:
+      print('once')
       self.F_optim = torch.optim.Adam(
           self.netF.parameters(),
           lr=self.lr,
@@ -329,6 +330,7 @@ class UGATIT_CUT(object):
 
       # Update G
       self.G_optim.zero_grad()
+      self.optimizer_F.zero_grad()
 
       fake_A2B, fake_A2B_cam_logit, _ = self.genA2B(real_A)
       fake_B2B, fake_B2B_cam_logit, _ = self.genA2B(real_B)
