@@ -100,6 +100,13 @@ class UGATIT_CUT(object):
     print("# cycle_weight : ", self.cycle_weight)
     print("# identity_weight : ", self.identity_weight)
     print("# cam_weight : ", self.cam_weight)
+    print("# nce_weight : ", self.nce_weight)
+
+    print("##### CUT #####")
+    print("# nce weight : ", self.nce_weight)
+    print("# nce temperature : ", self.nce_temperature)
+    print("# nce patches : ", self.nce_n_patches)
+    print("# nce net dim : ", self.nce_net_nc)
 
   ##################################################################################
   # Model
@@ -379,7 +386,7 @@ class UGATIT_CUT(object):
         train_sample_num = 5
         test_sample_num = 5
         A2B = np.zeros((self.img_size * 3, 0, 3))
-        B2A = np.zeros((self.img_size * 3, 0, 3))
+        B2B = np.zeros((self.img_size * 3, 0, 3))
 
         self.genA2B.eval(),  self.disGB.eval(), self.disLB.eval()
         for _ in range(train_sample_num):
@@ -406,7 +413,7 @@ class UGATIT_CUT(object):
                                                          denorm(fake_A2B[0]))),
                                                      ), 0)), 1)
 
-          B2A = np.concatenate((B2A, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_B[0]))),
+          B2B = np.concatenate((B2B, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_B[0]))),
                                                      cam(tensor2numpy(
                                                          fake_B2B_heatmap[0]), self.img_size),
                                                      RGB2BGR(tensor2numpy(
@@ -438,7 +445,7 @@ class UGATIT_CUT(object):
                                                          denorm(fake_A2B[0]))),
                                                      ), 0)), 1)
 
-          B2A = np.concatenate((B2A, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_B[0]))),
+          B2B = np.concatenate((B2B, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_B[0]))),
                                                      cam(tensor2numpy(
                                                          fake_B2B_heatmap[0]), self.img_size),
                                                      RGB2BGR(tensor2numpy(
@@ -448,7 +455,7 @@ class UGATIT_CUT(object):
         cv2.imwrite(os.path.join(self.result_dir, self.dataset,
                     'img', 'A2B_%07d.png' % step), A2B * 255.0)
         cv2.imwrite(os.path.join(self.result_dir, self.dataset,
-                    'img', 'B2A_%07d.png' % step), B2A * 255.0)
+                    'img', 'B2B_%07d.png' % step), B2B * 255.0)
         self.genA2B.train(), self.disGB.train(),  self.disLB.train()
 
       if step % self.save_freq == 0:
@@ -566,14 +573,14 @@ class UGATIT_CUT(object):
 
       fake_B2B, _, fake_B2B_heatmap = self.genA2B(real_B)
 
-      B2A = np.concatenate((RGB2BGR(tensor2numpy(denorm(real_B[0]))),
+      B2B = np.concatenate((RGB2BGR(tensor2numpy(denorm(real_B[0]))),
                             cam(tensor2numpy(
                                 fake_B2B_heatmap[0]), self.img_size),
                             RGB2BGR(tensor2numpy(denorm(fake_B2B[0]))),
                             ), 0)
 
       cv2.imwrite(os.path.join(self.result_dir, self.dataset,
-                  'test', 'B2A_%d.png' % (n + 1)), B2A * 255.0)
+                  'test', 'B2B_%d.png' % (n + 1)), B2B * 255.0)
 
   def translate(self):
     model_list = glob(os.path.join(
