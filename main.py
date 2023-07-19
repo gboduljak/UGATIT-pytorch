@@ -21,7 +21,7 @@ def parse_args():
 
   parser.add_argument('--iteration', type=int, default=500000,
                       help='The number of training iterations')
-  parser.add_argument('--batch_size', type=int, default=1,
+  parser.add_argument('--batch_size', type=int, default=2,
                       help='The size of batch size')
   parser.add_argument('--print_freq', type=int, default=1000,
                       help='The number of image print freq')
@@ -32,7 +32,7 @@ def parse_args():
   parser.add_argument('--decay_flag', type=str2bool,
                       default=True, help='The decay_flag')
 
-  parser.add_argument('--lr', type=float, default=0.0001,
+  parser.add_argument('--lr', type=float, default=0.0002,
                       help='The learning rate')
   parser.add_argument('--weight_decay', type=float,
                       default=0.0001, help='The weight decay')
