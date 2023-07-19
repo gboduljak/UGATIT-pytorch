@@ -207,7 +207,7 @@ class UGATIT_CUT(object):
     self.BCE_loss = nn.BCEWithLogitsLoss().to(self.device)
     self.NCE_losses = []
 
-    self.nce_layers = [0, 5, 9, 12, 14, 16, 18, 20]  # hardcoded for now
+    self.nce_layers = [0, 5, 9, 12, 16]  # hardcoded for now
     for _ in self.nce_layers:
       self.NCE_losses.append(
           PatchNCELoss(
