@@ -1,6 +1,7 @@
 import argparse
 
 from UGATIT import UGATIT
+from UGATIT_CUT import UGATIT_CUT
 from utils import *
 
 """parsing and configuration"""
@@ -13,6 +14,8 @@ def parse_args():
                       help='[train / test / translate]')
   parser.add_argument('--light', type=str2bool, default=True,
                       help='[U-GAT-IT full version / U-GAT-IT light version]')
+  parser.add_argument('--cut', type=str2bool, default=False,
+                      help='[CUT or NOT CUT]')
   parser.add_argument('--dataset', type=str,
                       default='YOUR_DATASET_NAME', help='dataset_name')
 
@@ -41,6 +44,8 @@ def parse_args():
                       default=10, help='Weight for Identity')
   parser.add_argument('--cam_weight', type=int,
                       default=1000, help='Weight for CAM')
+  parser.add_argument('--nce_weight', type=float, default=1.0,
+                      help='weight for NCE loss: NCE(G(X), X)')
 
   parser.add_argument('--ch', type=int, default=64,
                       help='base channel number per layer')
@@ -62,6 +67,17 @@ def parse_args():
   parser.add_argument('--benchmark_flag', type=str2bool, default=False)
   parser.add_argument('--resume', type=str2bool, default=False)
   parser.add_argument('--seed', type=int, default=269902365, help='Seed')
+
+  parser.add_argument('--nce_idt', type=str2bool, nargs='?', const=True,
+                      default=False, help='use NCE loss for identity mapping: NCE(G(Y), Y))')
+  parser.add_argument('--nce_temperature', type=float,
+                      default=0.07, help='temperature for NCE loss')
+  parser.add_argument('--nce_net_nc', type=int, default=256)
+  parser.add_argument('--nce_n_patches', type=int, default=256,
+                      help='number of patches per layer')
+
+  # full CUT
+  parser.set_defaults(nce_idt=True, nce_weight=1.0)
 
   return check_args(parser.parse_args())
 
@@ -99,8 +115,11 @@ def main():
   if args is None:
     exit()
 
-  # open session
-  gan = UGATIT(args)
+  if args.cut:
+    gan = UGATIT_CUT(args)
+  else:
+    # open session
+    gan = UGATIT(args)
 
   # build graph
   gan.build_model()
