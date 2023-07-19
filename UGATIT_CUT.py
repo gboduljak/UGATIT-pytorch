@@ -330,7 +330,7 @@ class UGATIT_CUT(object):
 
       # Update G
       self.G_optim.zero_grad()
-      self.optimizer_F.zero_grad()
+      self.F_optim.zero_grad()
 
       fake_A2B, fake_A2B_cam_logit, _ = self.genA2B(real_A)
       fake_B2B, fake_B2B_cam_logit, _ = self.genA2B(real_B)
