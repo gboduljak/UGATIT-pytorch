@@ -42,7 +42,7 @@ def parse_args():
                       default=10, help='Weight for Cycle')
   parser.add_argument('--identity_weight', type=int,
                       default=10, help='Weight for Identity')
-  parser.add_argument('--cam_weight', type=int,
+  parser.add_argument('--cam_weight', type=float,
                       default=1000, help='Weight for CAM')
   parser.add_argument('--nce_weight', type=float, default=1.0,
                       help='weight for NCE loss: NCE(G(X), X)')
