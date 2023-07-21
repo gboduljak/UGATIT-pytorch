@@ -46,8 +46,6 @@ class UGATIT_CUT(object):
 
     """ Weight """
     self.adv_weight = args.adv_weight
-    self.cycle_weight = args.cycle_weight
-    self.identity_weight = args.identity_weight
     self.cam_weight = args.cam_weight
 
     """ Generator """
@@ -69,6 +67,7 @@ class UGATIT_CUT(object):
     self.nce_temperature = args.nce_temperature
     self.nce_net_nc = args.nce_net_nc
     self.nce_n_patches = args.nce_n_patches
+    self.nce_layers = [int(x) for x in args.nce_layers.split(',')]
 
     if torch.backends.cudnn.enabled and self.benchmark_flag:
       print('set benchmark !')
@@ -97,14 +96,13 @@ class UGATIT_CUT(object):
 
     print("##### Weight #####")
     print("# adv_weight : ", self.adv_weight)
-    print("# cycle_weight : ", self.cycle_weight)
-    print("# identity_weight : ", self.identity_weight)
     print("# cam_weight : ", self.cam_weight)
     print("# nce_weight : ", self.nce_weight)
 
     print("##### CUT #####")
     print("# nce weight : ", self.nce_weight)
     print("# nce temperature : ", self.nce_temperature)
+    print("# nce layers : ", self.nce_layers)
     print("# nce patches : ", self.nce_n_patches)
     print("# nce net dim : ", self.nce_net_nc)
 
@@ -166,12 +164,24 @@ class UGATIT_CUT(object):
     self.testB_loader = DataLoader(self.testB, batch_size=1, shuffle=False)
 
     """ Define Generator, Discriminator """
-    self.genA2B = ResnetGenerator(input_nc=3, output_nc=3, ngf=self.ch,
-                                  n_blocks=self.n_res, img_size=self.img_size, light=self.light).to(self.device)
+    self.genA2B = ResnetGenerator(
+        input_nc=3,
+        output_nc=3,
+        ngf=self.ch,
+        n_blocks=self.n_res,
+        img_size=self.img_size,
+        light=self.light
+    ).to(self.device)
     self.disGB = Discriminator(
-        input_nc=3, ndf=self.ch, n_layers=7).to(self.device)
+        input_nc=3,
+        ndf=self.ch,
+        n_layers=7
+    ).to(self.device)
     self.disLB = Discriminator(
-        input_nc=3, ndf=self.ch, n_layers=5).to(self.device)
+        input_nc=3,
+        ndf=self.ch,
+        n_layers=5
+    ).to(self.device)
 
     """ Define F """
     self.netF = PatchSampleF(
@@ -207,7 +217,6 @@ class UGATIT_CUT(object):
     self.BCE_loss = nn.BCEWithLogitsLoss().to(self.device)
     self.NCE_losses = []
 
-    self.nce_layers = [0, 5, 9, 12, 16]  # hardcoded for now
     for _ in self.nce_layers:
       self.NCE_losses.append(
           PatchNCELoss(
@@ -233,10 +242,11 @@ class UGATIT_CUT(object):
         weight_decay=self.weight_decay
     )
     self.F_optim = None  # not initialized now
+
     """ Define Rho clipper to constraint the value of rho in AdaILN and ILN"""
     self.Rho_clipper = RhoClipper(0, 1)
 
-  def calculate_weighted_NCE_loss(self, src, tgt):
+  def calculate_nce_loss(self, src, tgt):
     n_layers = len(self.nce_layers)
     _, _, _, feat_q = self.genA2B(tgt, nce=True)
     _, _, _, feat_k = self.genA2B(src, nce=True)
@@ -257,8 +267,7 @@ class UGATIT_CUT(object):
 
     total_nce_loss = 0.0
     for f_q, f_k, pnce, _ in zip(feat_q_pool, feat_k_pool, self.NCE_losses, self.nce_layers):
-      loss = self.nce_weight * pnce(f_q, f_k)
-      total_nce_loss += loss.mean()
+      total_nce_loss += pnce(f_q, f_k).mean()
 
     return total_nce_loss / n_layers
 
@@ -333,11 +342,12 @@ class UGATIT_CUT(object):
       D_ad_cam_loss_LB = self.MSE_loss(real_LB_cam_logit, torch.ones_like(real_LB_cam_logit).to(
           self.device)) + self.MSE_loss(fake_LB_cam_logit, torch.zeros_like(fake_LB_cam_logit).to(self.device))
 
+      Discriminator_domain_gan_loss = D_ad_loss_GB + D_ad_loss_LB
+      Discriminator_cam_gan_loss = D_ad_cam_loss_GB + D_ad_cam_loss_LB
+
       Discriminator_loss = self.adv_weight * (
-          D_ad_loss_GB +
-          D_ad_cam_loss_GB +
-          D_ad_loss_LB +
-          D_ad_cam_loss_LB
+          Discriminator_domain_gan_loss +
+          Discriminator_cam_gan_loss
       )
       # Discriminator_loss = self.adv_weight * (D_ad_loss_LB + D_ad_cam_loss_LB)
       Discriminator_loss.backward()
@@ -371,7 +381,7 @@ class UGATIT_CUT(object):
           torch.ones_like(fake_LB_cam_logit).to(self.device)
       )
 
-      G_cam_loss_B = self.BCE_loss(
+      G_cam_loss = self.BCE_loss(
           fake_A2B_cam_logit,
           torch.ones_like(fake_A2B_cam_logit).to(self.device)
       ) + self.BCE_loss(
@@ -380,16 +390,21 @@ class UGATIT_CUT(object):
       )
 
       # this is where NCE goes
-      loss_NCE_X = self.calculate_weighted_NCE_loss(real_A, fake_A2B)
-      loss_NCE_Y = self.calculate_weighted_NCE_loss(real_B, fake_B2B)
-      loss_NCE_both = (loss_NCE_X + loss_NCE_Y) * 0.5
+      nce_loss_x = self.calculate_nce_loss(real_A, fake_A2B)
+      nce_loss_y = self.calculate_nce_loss(real_B, fake_B2B)
+      nce_both = (nce_loss_x + nce_loss_y) * 0.5
 
-      Generator_loss = self.adv_weight * (
-          G_ad_loss_GB +
-          G_ad_cam_loss_GB +
-          G_ad_loss_LB +
-          G_ad_cam_loss_LB
-      ) + loss_NCE_both + self.cam_weight * G_cam_loss_B
+      Generator_domain_gan_loss = G_ad_loss_GB + G_ad_loss_LB
+      Generator_cam_gan_loss = G_ad_cam_loss_GB + G_ad_cam_loss_LB
+
+      Generator_loss = (
+          self.adv_weight * (
+              Generator_domain_gan_loss +
+              Generator_cam_gan_loss
+          ) +
+          self.nce_weight * nce_both +
+          self.cam_weight * G_cam_loss
+      )
 
       Generator_loss.backward()
       self.G_optim.step()
@@ -399,15 +414,20 @@ class UGATIT_CUT(object):
       # clip parameter of AdaILN and ILN, applied after optimizer step
       self.genA2B.apply(self.Rho_clipper)
 
-      train_status_line = "[%5d/%5d] time: %4.4f d_loss: %.8f, g_loss: %.8f, nce_loss: %.8f, nce_x: %.8f, nce_y: %.8f" % (
+      train_status_line = "[%5d/%5d] time: %4.4f d_loss: %.8f, d_domain_gan_loss: %.8f, d_cam_gan_loss: %.8f, g_loss: %.8f, g_domain_gan_loss: %.8f, g_cam_gan_loss: %.8f, g_cam_loss: %.8f, nce_loss: %.8f, nce_x: %.8f, nce_y: %.8f" % (
           step,
           self.iteration,
           time.time() - start_time,
           Discriminator_loss,
+          Discriminator_domain_gan_loss,
+          Discriminator_cam_gan_loss,
           Generator_loss,
-          loss_NCE_both,
-          loss_NCE_X,
-          loss_NCE_Y
+          Generator_domain_gan_loss,
+          Generator_cam_gan_loss,
+          G_cam_loss,
+          nce_both,
+          nce_loss_x,
+          nce_loss_y
       )
       print(train_status_line)
       with open(os.path.join(self.result_dir, self.dataset, 'train_log.txt'), 'a') as tl:

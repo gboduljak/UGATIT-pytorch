@@ -32,7 +32,8 @@ def parse_args():
   parser.add_argument('--decay_flag', type=str2bool,
                       default=True, help='The decay_flag')
 
-  parser.add_argument('--lr', type=float, default=0.0002,
+  # U-GAT-IT Defaults
+  parser.add_argument('--lr', type=float, default=0.0001,
                       help='The learning rate')
   parser.add_argument('--weight_decay', type=float,
                       default=0.0001, help='The weight decay')
@@ -42,8 +43,9 @@ def parse_args():
                       default=10, help='Weight for Cycle')
   parser.add_argument('--identity_weight', type=int,
                       default=10, help='Weight for Identity')
-  parser.add_argument('--cam_weight', type=float,
+  parser.add_argument('--cam_weight', type=int,
                       default=1000, help='Weight for CAM')
+
   parser.add_argument('--nce_weight', type=float, default=1.0,
                       help='weight for NCE loss: NCE(G(X), X)')
 
@@ -68,16 +70,50 @@ def parse_args():
   parser.add_argument('--resume', type=str2bool, default=False)
   parser.add_argument('--seed', type=int, default=269902365, help='Seed')
 
-  parser.add_argument('--nce_idt', type=str2bool, nargs='?', const=True,
-                      default=False, help='use NCE loss for identity mapping: NCE(G(Y), Y))')
-  parser.add_argument('--nce_temperature', type=float,
-                      default=0.07, help='temperature for NCE loss')
-  parser.add_argument('--nce_net_nc', type=int, default=256)
-  parser.add_argument('--nce_n_patches', type=int, default=256,
-                      help='number of patches per layer')
+  parser.add_argument(
+      '--nce_idt',
+      type=str2bool,
+      nargs='?',
+      const=True,
+      default=False,
+      help='use NCE loss for identity mapping: NCE(G(Y), Y))'
+  )
+  parser.add_argument(
+      '--nce_temperature',
+      type=float,
+      default=0.07,
+      help='temperature for NCE loss'
+  )
+  parser.add_argument(
+      '--nce_net_nc',
+      type=int,
+      default=256
+  )
+  parser.add_argument(
+      '--nce_n_patches',
+      type=int,
+      default=256,
+      help='number of patches per layer'
+  )
+  parser.add_argument(
+      '--nce_layers',
+      type=str,
+      default='0,5,9,12,16',
+      help='layers contributing to NCE'
+  )
 
   # full CUT
-  parser.set_defaults(nce_idt=True, nce_weight=1.0)
+  # parser.set_defaults(nce_idt=True, nce_weight=1.0)
+
+  # default for U-GAT-IT-CUT
+  parser.set_defaults(
+      lr=0.0002
+  )
+  parser.set_defaults(
+      nce_idt=True,
+      nce_layers='0,5,9,12,16',
+      nce_weight=10.0
+  )
 
   return check_args(parser.parse_args())
 
@@ -90,19 +126,21 @@ def check_args(args):
   check_folder(os.path.join(args.result_dir, args.dataset, 'model'))
   check_folder(os.path.join(args.result_dir, args.dataset, 'img'))
   check_folder(os.path.join(args.result_dir, args.dataset, 'test'))
-  with open(os.path.join(args.result_dir, args.dataset, 'training_log.txt'), 'w'):
-    pass
   # --epoch
   try:
     assert args.epoch >= 1
   except:
     print('number of epochs must be larger than or equal to one')
-
   # --batch_size
   try:
     assert args.batch_size >= 1
   except:
     print('batch size must be larger than or equal to one')
+  # --nce_layers
+  try:
+    assert len(''.join(args.nce_layers.split(','))) >= 1
+  except:
+    print('there must be at least one layer for NCE loss')
   return args
 
 
