@@ -246,7 +246,7 @@ class UGATIT_CUT(object):
     """ Define Rho clipper to constraint the value of rho in AdaILN and ILN"""
     self.Rho_clipper = RhoClipper(0, 1)
 
-  def calculate_nce_loss(self, src, tgt):
+  def calculate_nce_loss(self, src: torch.Tensor, tgt: torch.Tensor):
     n_layers = len(self.nce_layers)
     _, _, _, feat_q = self.genA2B(tgt, nce=True)
     _, _, _, feat_k = self.genA2B(src, nce=True)
@@ -257,13 +257,16 @@ class UGATIT_CUT(object):
     feat_q_pool, _ = self.netF(feat_q, self.nce_n_patches, sample_ids)
 
     if should_init_optimizer:
-      print('once')
       self.F_optim = torch.optim.Adam(
           self.netF.parameters(),
           lr=self.lr,
           betas=(0.5, 0.999),
           weight_decay=self.weight_decay
       )
+      if self.decay_flag and self.step > (self.iteration // 2):
+        self.F_optim.param_groups[0]['lr'] -= (
+            self.lr / (self.iteration // 2)
+        ) * (self.start_iter - self.iteration // 2)
 
     total_nce_loss = 0.0
     for f_q, f_k, pnce, _ in zip(feat_q_pool, feat_k_pool, self.NCE_losses, self.nce_layers):
@@ -289,15 +292,26 @@ class UGATIT_CUT(object):
               self.iteration // 2)) * (start_iter - self.iteration // 2)
           self.D_optim.param_groups[0]['lr'] -= (self.lr / (
               self.iteration // 2)) * (start_iter - self.iteration // 2)
+          if self.F_optim:
+            self.F_optim.param_groups[0]['lr'] -= (
+                self.lr / (self.iteration // 2)
+            ) * (start_iter - self.iteration // 2)
 
     # training loop
     print('training start !')
     start_time = time.time()
+    self.start_iter = start_iter
+
     for step in range(start_iter, self.iteration + 1):
+      self.step = step
+
       if self.decay_flag and step > (self.iteration // 2):
         self.G_optim.param_groups[0]['lr'] -= (self.lr / (self.iteration // 2))
         self.D_optim.param_groups[0]['lr'] -= (self.lr / (self.iteration // 2))
-
+        if self.F_optim:
+          self.F_optim.param_groups[0]['lr'] -= (
+              self.lr / (self.iteration // 2)
+          ) * (start_iter - self.iteration // 2)
       try:
         real_A, _ = next(trainA_iter)
       except:
@@ -408,8 +422,7 @@ class UGATIT_CUT(object):
 
       Generator_loss.backward()
       self.G_optim.step()
-      if self.F_optim:
-        self.F_optim.step()
+      self.F_optim.step()
 
       # clip parameter of AdaILN and ILN, applied after optimizer step
       self.genA2B.apply(self.Rho_clipper)
