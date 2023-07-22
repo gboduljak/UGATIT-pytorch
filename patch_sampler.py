@@ -6,23 +6,21 @@ import torch.nn.functional as F
 from einops import rearrange
 
 from batch_index_select import *
-from init import init_net
+
+# TODO: We are using different initialization of MLPs in comparison to the paper.
+# It might be necessary to verify consequences of this.
 
 
 class PatchSampler(nn.Module):
   def __init__(self,
                patch_embedding_dim: int,
                num_patches_per_layer: int,
-               device: torch.device,
-               init_type='normal',
-               init_gain=0.02) -> None:
+               device: torch.device) -> None:
     super().__init__()
     self.mlps_init = False
     self.patch_embedding_dim = patch_embedding_dim
     self.num_patches_per_layer = num_patches_per_layer
     self.device = device
-    self.init_type = init_type
-    self.init_gain = init_gain
 
   def create_mlps_if_necessary(self, layer_outs: List[torch.Tensor]):
     if self.mlps_init:
@@ -46,7 +44,6 @@ class PatchSampler(nn.Module):
           ).to(self.device)
       )
 
-    # init_net(self, self.init_type, self.init_gain, self.device)
     self.mlps_init = True
 
   def forward(self,
