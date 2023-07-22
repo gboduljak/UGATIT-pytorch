@@ -291,9 +291,8 @@ class UGATIT_CUT(object):
           self.D_optim.param_groups[0]['lr'] -= (self.lr / (
               self.iteration // 2)) * (start_iter - self.iteration // 2)
           if self.P_optim:
-            self.P_optim.param_groups[0]['lr'] -= (
-                self.lr / (self.iteration // 2)
-            ) * (start_iter - self.iteration // 2)
+            self.P_optim.param_groups[0]['lr'] -= (self.lr / (
+                self.iteration // 2)) * (start_iter - self.iteration // 2)
 
     # training loop
     print('training start !')
@@ -308,8 +307,7 @@ class UGATIT_CUT(object):
         self.D_optim.param_groups[0]['lr'] -= (self.lr / (self.iteration // 2))
         if self.P_optim:
           self.P_optim.param_groups[0]['lr'] -= (
-              self.lr / (self.iteration // 2)
-          ) * (start_iter - self.iteration // 2)
+              self.lr / (self.iteration // 2))
       try:
         real_A, _ = next(trainA_iter)
       except:
