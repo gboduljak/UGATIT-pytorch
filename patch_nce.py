@@ -7,29 +7,52 @@ from einops import einsum, rearrange, repeat
 class PatchNCELoss(nn.Module):
   def __init__(self,
                temperature: float,
-               batch_size: int,
-               patch_dim: int,
                use_external_patches: bool = False):
     super().__init__()
     self.temperature = temperature
-    self.batch_size = batch_size
-    self.patch_dim = patch_dim
     self.use_external_patches = use_external_patches
 
-  def forward(self, q_patches: torch.Tensor, k_patches: torch.Tensor):
-    # q_patches : [batch_size, num_patches_per_batch, patch_dim]
-    # k_patches : [batch_size, num_patches_per_batch, patch_dim]
-    _, num_patches_per_batch, _ = q_patches.shape
+  def forward(self, q: torch.Tensor, k: torch.Tensor):
+    # q : [batch_size, num_patches_per_batch, patch_dim]
+    # k : [batch_size, num_patches_per_batch, patch_dim]
+    batch_size, num_patches_per_batch, _ = q.shape
     # logits: [batch_size, num_patches_per_batch, num_patches_per_batch]
     #       - diagonal entries are positives
     #       - non-diagonal entries are negatives
     logits = (1 / self.temperature) * einsum(
-        q_patches,
-        k_patches,
+        q,
+        k,
         'b i d, b j d -> b i j'
     )
     labels = torch.arange(num_patches_per_batch).to(logits.device).long()
-    # out : [batch_size, ]
+
+    if self.use_external_patches:
+      external_logits = (1 / self.temperature) * einsum(
+          q,
+          k,
+          'k i d, l j d -> k l i j'
+      )
+      mask_internal_logits = repeat(
+          torch.eye(batch_size),
+          'k l -> k l i j',
+          i=num_patches_per_batch,
+          j=num_patches_per_batch
+      )
+      masked_external_negatives_logits = torch.masked_fill(
+          input=external_logits,
+          mask=mask_internal_logits.bool(),
+          value=float('-inf')
+      )
+      external_negatives_logits = rearrange(
+          masked_external_negatives_logits,
+          'b l i j -> b i (l j)'
+      )
+      # logits : [batch_size, num_patches_per_batch, num_patches_per_batch]
+      # external_negatives_logits:  [batch_size, num_patches_per_batch, (batch_size * num_patches_per_batch)]
+      logits = torch.cat((logits, external_negatives_logits), dim=2)
+      # logits : [batch_size, num_patches_per_batch, num_patches_per_batch + (batch_size * num_patches_per_batch)]
+    # print(logits) for debugging.
+    # out : [batch_size * num_patches_per_batch, ]
     return F.cross_entropy(
         input=rearrange(
             logits,
@@ -38,7 +61,7 @@ class PatchNCELoss(nn.Module):
         target=repeat(
             labels,
             'i -> (b i)',
-            b=self.batch_size
+            b=batch_size
         ),
         reduction='none'
     )

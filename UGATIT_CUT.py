@@ -219,8 +219,6 @@ class UGATIT_CUT(object):
       self.NCE_losses.append(
           PatchNCELoss(
               temperature=self.nce_temperature,
-              batch_size=self.batch_size,
-              patch_dim=self.nce_net_nc,
               use_external_patches=False
           ).to(self.device)
       )
