@@ -1,6 +1,5 @@
 import itertools
 import os
-import random
 import time
 from glob import glob
 from pathlib import Path
@@ -16,7 +15,6 @@ from generator import ResnetGenerator
 from networks import Discriminator, RhoClipper
 from patch_nce import PatchNCELoss
 from patch_sampler import PatchSampler
-from psample import PatchSampleF
 from seed import get_seeded_generator, seed_everything, seeded_worker_init_fn
 from utils import *
 
@@ -277,7 +275,7 @@ class UGATIT_CUT(object):
     return total_nce_loss / n_layers
 
   def train(self):
-    self.genA2B.train(), self.disGB.train(),  self.disLB.train()
+    self.genA2B.train(), self.disGB.train(), self.disLB.train(), self.patch_sampler.train()
 
     start_iter = 1
     if self.resume:
@@ -454,7 +452,7 @@ class UGATIT_CUT(object):
         A2B = np.zeros((self.img_size * 3, 0, 3))
         B2B = np.zeros((self.img_size * 3, 0, 3))
 
-        self.genA2B.eval(),  self.disGB.eval(), self.disLB.eval()
+        self.genA2B.eval(),  self.disGB.eval(), self.disLB.eval(), self.patch_sampler.eval()
         for _ in range(train_sample_num):
           try:
             real_A, _ = next(trainA_iter)
@@ -522,7 +520,7 @@ class UGATIT_CUT(object):
                     'img', 'A2B_%07d.png' % step), A2B * 255.0)
         cv2.imwrite(os.path.join(self.result_dir, self.dataset,
                     'img', 'B2B_%07d.png' % step), B2B * 255.0)
-        self.genA2B.train(), self.disGB.train(),  self.disLB.train()
+        self.genA2B.train(), self.disGB.train(),  self.disLB.train(), self.patch_sampler.train()
 
       if step % self.save_freq == 0:
         self.save(os.path.join(self.result_dir, self.dataset, 'model'), step)
@@ -532,6 +530,7 @@ class UGATIT_CUT(object):
         params['genA2B'] = self.genA2B.state_dict()
         params['disGB'] = self.disGB.state_dict()
         params['disLB'] = self.disLB.state_dict()
+        params['patch_sampler'] = self.patch_sampler.state_dict()
         torch.save(params, os.path.join(self.result_dir,
                    self.dataset + '_params_latest.pt'))
 
@@ -543,6 +542,8 @@ class UGATIT_CUT(object):
     params['genA2B'] = self.genA2B.state_dict()
     params['disGB'] = self.disGB.state_dict()
     params['disLB'] = self.disLB.state_dict()
+    params['patch_sampler'] = self.patch_sampler.state_dict()
+
     torch.save(params, os.path.join(
         dir, self.dataset + '_params_%07d.pt' % step))
 
@@ -552,6 +553,7 @@ class UGATIT_CUT(object):
     self.genA2B.load_state_dict(params['genA2B'])
     self.disGB.load_state_dict(params['disGB'])
     self.disLB.load_state_dict(params['disLB'])
+    self.patch_sampler.load_state_dict(params['patch_sampler'])
 
   def val(self, step: int):
 
