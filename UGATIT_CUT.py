@@ -12,8 +12,10 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 
 from dataset import ImageFolder
-from networks import *
-from pnce import PatchNCELoss
+from generator import ResnetGenerator
+from networks import Discriminator, RhoClipper
+from patch_nce import PatchNCELoss
+from patch_sampler import PatchSampler
 from psample import PatchSampleF
 from seed import get_seeded_generator, seed_everything, seeded_worker_init_fn
 from utils import *
@@ -167,7 +169,8 @@ class UGATIT_CUT(object):
         input_nc=3,
         output_nc=3,
         ngf=self.ch,
-        n_blocks=self.n_res,
+        n_resnet_blocks=self.n_res,
+        nce_layers_indices=self.nce_layers,
         img_size=self.img_size,
         light=self.light
     ).to(self.device)
@@ -182,12 +185,10 @@ class UGATIT_CUT(object):
         n_layers=5
     ).to(self.device)
 
-    """ Define F """
-    self.netF = PatchSampleF(
-        use_mlp=True,
-        init_type='normal',
-        init_gain=0.02,
-        nc=self.nce_net_nc,
+    """ Define Patch Sampler"""
+    self.patch_sampler = PatchSampler(
+        patch_embedding_dim=self.nce_net_nc,
+        num_patches_per_layer=self.nce_n_patches,
         device=self.device
     )
 
@@ -220,7 +221,9 @@ class UGATIT_CUT(object):
       self.NCE_losses.append(
           PatchNCELoss(
               temperature=self.nce_temperature,
-              batch_size=self.batch_size
+              batch_size=self.batch_size,
+              patch_dim=self.nce_net_nc,
+              use_external_patches=False
           ).to(self.device)
       )
 
@@ -240,30 +243,30 @@ class UGATIT_CUT(object):
         betas=(0.5, 0.999),
         weight_decay=self.weight_decay
     )
-    self.F_optim = None  # not initialized now
+    self.P_optim = None  # not initialized now
 
     """ Define Rho clipper to constraint the value of rho in AdaILN and ILN"""
     self.Rho_clipper = RhoClipper(0, 1)
 
   def calculate_nce_loss(self, src: torch.Tensor, tgt: torch.Tensor):
     n_layers = len(self.nce_layers)
-    _, _, _, feat_q = self.genA2B(tgt, nce=True)
-    _, _, _, feat_k = self.genA2B(src, nce=True)
+    feat_q = self.genA2B(tgt, nce=True)
+    feat_k = self.genA2B(src, nce=True)
 
-    should_init_optimizer = not self.netF.mlp_init
+    should_init_optimizer = not self.patch_sampler.mlps_init
 
-    feat_k_pool, sample_ids = self.netF(feat_k, self.nce_n_patches, None)
-    feat_q_pool, _ = self.netF(feat_q, self.nce_n_patches, sample_ids)
+    feat_k_pool, feat_k_pool_idx = self.patch_sampler(feat_k)
+    feat_q_pool, _ = self.patch_sampler(feat_q, feat_k_pool_idx)
 
     if should_init_optimizer:
-      self.F_optim = torch.optim.Adam(
-          self.netF.parameters(),
+      self.P_optim = torch.optim.Adam(
+          self.patch_sampler.parameters(),
           lr=self.lr,
           betas=(0.5, 0.999),
           weight_decay=self.weight_decay
       )
       if self.decay_flag and self.step > (self.iteration // 2):
-        self.F_optim.param_groups[0]['lr'] -= (
+        self.P_optim.param_groups[0]['lr'] -= (
             self.lr / (self.iteration // 2)
         ) * (self.start_iter - self.iteration // 2)
 
@@ -291,8 +294,8 @@ class UGATIT_CUT(object):
               self.iteration // 2)) * (start_iter - self.iteration // 2)
           self.D_optim.param_groups[0]['lr'] -= (self.lr / (
               self.iteration // 2)) * (start_iter - self.iteration // 2)
-          if self.F_optim:
-            self.F_optim.param_groups[0]['lr'] -= (
+          if self.P_optim:
+            self.P_optim.param_groups[0]['lr'] -= (
                 self.lr / (self.iteration // 2)
             ) * (start_iter - self.iteration // 2)
 
@@ -307,8 +310,8 @@ class UGATIT_CUT(object):
       if self.decay_flag and step > (self.iteration // 2):
         self.G_optim.param_groups[0]['lr'] -= (self.lr / (self.iteration // 2))
         self.D_optim.param_groups[0]['lr'] -= (self.lr / (self.iteration // 2))
-        if self.F_optim:
-          self.F_optim.param_groups[0]['lr'] -= (
+        if self.P_optim:
+          self.P_optim.param_groups[0]['lr'] -= (
               self.lr / (self.iteration // 2)
           ) * (start_iter - self.iteration // 2)
       try:
@@ -368,8 +371,8 @@ class UGATIT_CUT(object):
 
       # Update G
       self.G_optim.zero_grad()
-      if self.F_optim:
-        self.F_optim.zero_grad()
+      if self.P_optim:
+        self.P_optim.zero_grad()
 
       fake_A2B, fake_A2B_cam_logit, _ = self.genA2B(real_A)
       fake_B2B, fake_B2B_cam_logit, _ = self.genA2B(real_B)
@@ -421,7 +424,7 @@ class UGATIT_CUT(object):
 
       Generator_loss.backward()
       self.G_optim.step()
-      self.F_optim.step()
+      self.P_optim.step()
 
       # clip parameter of AdaILN and ILN, applied after optimizer step
       self.genA2B.apply(self.Rho_clipper)
