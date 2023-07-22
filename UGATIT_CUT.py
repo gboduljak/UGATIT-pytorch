@@ -100,7 +100,6 @@ class UGATIT_CUT(object):
     print("# nce_weight : ", self.nce_weight)
 
     print("##### CUT #####")
-    print("# nce weight : ", self.nce_weight)
     print("# nce temperature : ", self.nce_temperature)
     print("# nce layers : ", self.nce_layers)
     print("# nce patches : ", self.nce_n_patches)
