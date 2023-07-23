@@ -244,6 +244,9 @@ class UGATIT_CUT(object):
     """ Define Rho clipper to constraint the value of rho in AdaILN and ILN"""
     self.Rho_clipper = RhoClipper(0, 1)
 
+    """ Define """
+    self.smallest_val_fid = float('inf')
+
   def calculate_nce_loss(self, src: torch.Tensor, tgt: torch.Tensor):
     n_layers = len(self.nce_layers)
     feat_q = self.generator(tgt, nce=True)
@@ -540,29 +543,29 @@ class UGATIT_CUT(object):
         ),  self.local_discriminator.train(), self.patch_sampler.train()
 
       if step % self.save_freq == 0:
-        self.save(os.path.join(self.result_dir, self.dataset, 'model'), step)
+        self.save(params_file_name=self.dataset + '_params_%07d.pt' % step)
 
       if step % 1000 == 0:
-        params = {}
-        params['generator'] = self.generator.state_dict()
-        params['global_discriminator'] = self.global_discriminator.state_dict()
-        params['local_discriminator'] = self.local_discriminator.state_dict()
-        params['patch_sampler'] = self.patch_sampler.state_dict()
-        torch.save(params, os.path.join(self.result_dir,
-                   self.dataset + '_params_latest.pt'))
+        self.save(params_file_name=self.dataset + '_params_latest.pt')
 
       if step % self.val_freq == 0:
         self.val(step)
 
-  def save(self, dir, step):
+  def save(self, params_file_name: str):
     params = {}
     params['generator'] = self.generator.state_dict()
     params['global_discriminator'] = self.global_discriminator.state_dict()
     params['local_discriminator'] = self.local_discriminator.state_dict()
     params['patch_sampler'] = self.patch_sampler.state_dict()
-
-    torch.save(params, os.path.join(
-        dir, self.dataset + '_params_%07d.pt' % step))
+    torch.save(
+        params,
+        os.path.join(
+            self.result_dir,
+            self.dataset,
+            'model',
+            params_file_name
+        )
+    )
 
   def load(self, dir, step):
     params = torch.load(os.path.join(
@@ -621,8 +624,8 @@ class UGATIT_CUT(object):
         rng_seed=self.seed,
         cuda=torch.cuda.is_available(),
     )
-    with open(os.path.join(model_val_translations_dir, 'val_log.txt'), 'a') as tl:
-      tl.write(f'step:{step}\n')
+    with open(os.path.join(Path(self.result_dir, self.dataset), 'val_log.txt'), 'a') as tl:
+      tl.write(f'step: {step}\n')
       tl.write(
           f'inception_score_mean: {metrics["inception_score_mean"]}\n'
       )
@@ -632,6 +635,23 @@ class UGATIT_CUT(object):
       tl.write(
           f'frechet_inception_distance: {metrics["frechet_inception_distance"]}\n'
       )
+
+    if metrics['frechet_inception_distance'] < self.smallest_val_fid:
+      self.smallest_val_fid = metrics['frechet_inception_distance']
+      self.save(params_file_name=self.dataset + f'_params_smallest_val_fid.pt')
+      smallest_val_fid_file = Path(
+          self.result_dir,
+          self.dataset, 'smallest_val_fid.txt'
+      )
+      if os.path.exists(smallest_val_fid_file):
+        os.remove(smallest_val_fid_file)
+      with open(smallest_val_fid_file, 'a') as tl:
+        tl.write(
+            f'step: {step}\n'
+        )
+        tl.write(
+            f'frechet_inception_distance: {metrics["frechet_inception_distance"]}\n'
+        )
 
   def test(self):
     model_list = glob(os.path.join(
