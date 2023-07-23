@@ -261,10 +261,11 @@ class UGATIT_CUT(object):
           betas=(0.5, 0.999),
           weight_decay=self.weight_decay
       )
+      if self.resume:
+        self.P_optim.param_groups[0]['lr'] -= (self.lr / (
+            self.iteration // 2)) * (self.start_iter - self.iteration // 2)
       if self.decay_flag and self.step > (self.iteration // 2):
-        self.P_optim.param_groups[0]['lr'] -= (
-            self.lr / (self.iteration // 2)
-        ) * (self.start_iter - self.iteration // 2)
+        self.P_optim.param_groups[0]['lr'] -= (self.lr / (self.iteration // 2))
 
     total_nce_loss = 0.0
     for f_q, f_k, pnce, _ in zip(feat_q_pool, feat_k_pool, self.NCE_losses, self.nce_layers):
