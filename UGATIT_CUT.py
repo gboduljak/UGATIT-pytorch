@@ -348,10 +348,20 @@ class UGATIT_CUT(object):
           fake_GB_cam_logit,
           torch.zeros_like(fake_GB_cam_logit).to(self.device)
       )
-      D_ad_loss_LB = self.MSE_loss(real_LB_logit, torch.ones_like(real_LB_logit).to(
-          self.device)) + self.MSE_loss(fake_LB_logit, torch.zeros_like(fake_LB_logit).to(self.device))
-      D_ad_cam_loss_LB = self.MSE_loss(real_LB_cam_logit, torch.ones_like(real_LB_cam_logit).to(
-          self.device)) + self.MSE_loss(fake_LB_cam_logit, torch.zeros_like(fake_LB_cam_logit).to(self.device))
+      D_ad_loss_LB = self.MSE_loss(
+          real_LB_logit,
+          torch.ones_like(real_LB_logit).to(self.device)
+      ) + self.MSE_loss(
+          fake_LB_logit,
+          torch.zeros_like(fake_LB_logit).to(self.device)
+      )
+      D_ad_cam_loss_LB = self.MSE_loss(
+          real_LB_cam_logit,
+          torch.ones_like(real_LB_cam_logit).to(self.device)
+      ) + self.MSE_loss(
+          fake_LB_cam_logit,
+          torch.zeros_like(fake_LB_cam_logit).to(self.device)
+      )
 
       Discriminator_domain_gan_loss = D_ad_loss_GB + D_ad_loss_LB
       Discriminator_cam_gan_loss = D_ad_cam_loss_GB + D_ad_cam_loss_LB
@@ -366,6 +376,8 @@ class UGATIT_CUT(object):
 
       # Update G
       self.G_optim.zero_grad()
+      # Update patch sampler. If we are in the first iteration, its optimizer is not initialized.
+      # This is because patch sampler MLPs's dimension depends on the feature map shapes which are known in the first forward pass of NCE loss.
       if self.P_optim:
         self.P_optim.zero_grad()
 
