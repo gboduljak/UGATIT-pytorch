@@ -65,7 +65,7 @@ class UGATIT_CUT(object):
     """ CUT """
     self.nce_weight = args.nce_weight
     self.nce_temperature = args.nce_temperature
-    self.nce_net_nc = args.nce_net_nc
+    self.nce_patch_embedding_dim = args.nce_patch_embedding_dim
     self.nce_n_patches = args.nce_n_patches
     self.nce_layers = [int(x) for x in args.nce_layers.split(',')]
 
@@ -103,7 +103,7 @@ class UGATIT_CUT(object):
     print("# nce temperature : ", self.nce_temperature)
     print("# nce layers : ", self.nce_layers)
     print("# nce patches : ", self.nce_n_patches)
-    print("# nce net dim : ", self.nce_net_nc)
+    print("# nce patch embedding dim : ", self.nce_patch_embedding_dim)
 
   ##################################################################################
   # Model
@@ -163,7 +163,7 @@ class UGATIT_CUT(object):
     self.testB_loader = DataLoader(self.testB, batch_size=1, shuffle=False)
 
     """ Define Generator, Discriminator """
-    self.genA2B = ResnetGenerator(
+    self.generator = ResnetGenerator(
         input_nc=3,
         output_nc=3,
         ngf=self.ch,
@@ -172,12 +172,12 @@ class UGATIT_CUT(object):
         img_size=self.img_size,
         light=self.light
     ).to(self.device)
-    self.disGB = Discriminator(
+    self.global_discriminator = Discriminator(
         input_nc=3,
         ndf=self.ch,
         n_layers=7
     ).to(self.device)
-    self.disLB = Discriminator(
+    self.local_discriminator = Discriminator(
         input_nc=3,
         ndf=self.ch,
         n_layers=5
@@ -185,28 +185,28 @@ class UGATIT_CUT(object):
 
     """ Define Patch Sampler"""
     self.patch_sampler = PatchSampler(
-        patch_embedding_dim=self.nce_net_nc,
+        patch_embedding_dim=self.nce_patch_embedding_dim,
         num_patches_per_layer=self.nce_n_patches,
         device=self.device
     )
 
     print('Generator:')
-    print(self.genA2B)
-    print(f'total params: {get_total_model_params(self.genA2B)}')
+    print(self.generator)
+    print(f'total params: {get_total_model_params(self.generator)}')
     print(
-        f'total trainable params: {get_total_trainable_model_params(self.genA2B)}'
+        f'total trainable params: {get_total_trainable_model_params(self.generator)}'
     )
     print('Global Discriminator:')
-    print(self.disGB)
-    print(f'total params: {get_total_model_params(self.disGB)}')
+    print(self.global_discriminator)
+    print(f'total params: {get_total_model_params(self.global_discriminator)}')
     print(
-        f'total trainable params: {get_total_trainable_model_params(self.disGB)}'
+        f'total trainable params: {get_total_trainable_model_params(self.global_discriminator)}'
     )
     print('Local Discriminator:')
-    print(self.disLB)
-    print(f'total params: {get_total_model_params(self.disLB)}')
+    print(self.local_discriminator)
+    print(f'total params: {get_total_model_params(self.local_discriminator)}')
     print(
-        f'total trainable params: {get_total_trainable_model_params(self.disLB)}'
+        f'total trainable params: {get_total_trainable_model_params(self.local_discriminator)}'
     )
 
     """ Define Loss """
@@ -225,15 +225,15 @@ class UGATIT_CUT(object):
 
     """ Trainer """
     self.G_optim = torch.optim.Adam(
-        itertools.chain(self.genA2B.parameters()),
+        itertools.chain(self.generator.parameters()),
         lr=self.lr,
         betas=(0.5, 0.999),
         weight_decay=self.weight_decay
     )
     self.D_optim = torch.optim.Adam(
         itertools.chain(
-            self.disGB.parameters(),
-            self.disLB.parameters()
+            self.global_discriminator.parameters(),
+            self.local_discriminator.parameters()
         ),
         lr=self.lr,
         betas=(0.5, 0.999),
@@ -246,8 +246,8 @@ class UGATIT_CUT(object):
 
   def calculate_nce_loss(self, src: torch.Tensor, tgt: torch.Tensor):
     n_layers = len(self.nce_layers)
-    feat_q = self.genA2B(tgt, nce=True)
-    feat_k = self.genA2B(src, nce=True)
+    feat_q = self.generator(tgt, nce=True)
+    feat_k = self.generator(src, nce=True)
 
     should_init_optimizer = not self.patch_sampler.mlps_init
 
@@ -274,7 +274,10 @@ class UGATIT_CUT(object):
     return total_nce_loss / n_layers
 
   def train(self):
-    self.genA2B.train(), self.disGB.train(), self.disLB.train(), self.patch_sampler.train()
+    self.generator.train(),
+    self.global_discriminator.train(),
+    self.local_discriminator.train(),
+    self.patch_sampler.train()
 
     start_iter = 1
     if self.resume:
@@ -326,13 +329,13 @@ class UGATIT_CUT(object):
       # Update D
       self.D_optim.zero_grad()
 
-      fake_A2B, _, _ = self.genA2B(real_A)
+      fake_A2B, _, _ = self.generator(real_A)
 
-      real_GB_logit, real_GB_cam_logit, _ = self.disGB(real_B)
-      real_LB_logit, real_LB_cam_logit, _ = self.disLB(real_B)
+      real_GB_logit, real_GB_cam_logit, _ = self.global_discriminator(real_B)
+      real_LB_logit, real_LB_cam_logit, _ = self.local_discriminator(real_B)
 
-      fake_GB_logit, fake_GB_cam_logit, _ = self.disGB(fake_A2B)
-      fake_LB_logit, fake_LB_cam_logit, _ = self.disLB(fake_A2B)
+      fake_GB_logit, fake_GB_cam_logit, _ = self.global_discriminator(fake_A2B)
+      fake_LB_logit, fake_LB_cam_logit, _ = self.local_discriminator(fake_A2B)
 
       D_ad_loss_GB = self.MSE_loss(
           real_GB_logit,
@@ -381,11 +384,11 @@ class UGATIT_CUT(object):
       if self.P_optim:
         self.P_optim.zero_grad()
 
-      fake_A2B, fake_A2B_cam_logit, _ = self.genA2B(real_A)
-      fake_B2B, fake_B2B_cam_logit, _ = self.genA2B(real_B)
+      fake_A2B, fake_A2B_cam_logit, _ = self.generator(real_A)
+      fake_B2B, fake_B2B_cam_logit, _ = self.generator(real_B)
 
-      fake_GB_logit, fake_GB_cam_logit, _ = self.disGB(fake_A2B)
-      fake_LB_logit, fake_LB_cam_logit, _ = self.disLB(fake_A2B)
+      fake_GB_logit, fake_GB_cam_logit, _ = self.global_discriminator(fake_A2B)
+      fake_LB_logit, fake_LB_cam_logit, _ = self.local_discriminator(fake_A2B)
 
       G_ad_loss_GB = self.MSE_loss(
           fake_GB_logit,
@@ -434,7 +437,7 @@ class UGATIT_CUT(object):
       self.P_optim.step()
 
       # clip parameter of AdaILN and ILN, applied after optimizer step
-      self.genA2B.apply(self.Rho_clipper)
+      self.generator.apply(self.Rho_clipper)
 
       train_status_line = "[%5d/%5d] time: %4.4f d_loss: %.8f, d_domain_gan_loss: %.8f, d_cam_gan_loss: %.8f, g_loss: %.8f, g_domain_gan_loss: %.8f, g_cam_gan_loss: %.8f, g_cam_loss: %.8f, nce_loss: %.8f, nce_x: %.8f, nce_y: %.8f" % (
           step,
@@ -461,7 +464,11 @@ class UGATIT_CUT(object):
         A2B = np.zeros((self.img_size * 3, 0, 3))
         B2B = np.zeros((self.img_size * 3, 0, 3))
 
-        self.genA2B.eval(),  self.disGB.eval(), self.disLB.eval(), self.patch_sampler.eval()
+        self.generator.eval(),
+        self.global_discriminator.eval(),
+        self.local_discriminator.eval(),
+        self.patch_sampler.eval()
+
         for _ in range(train_sample_num):
           try:
             real_A, _ = next(trainA_iter)
@@ -476,8 +483,8 @@ class UGATIT_CUT(object):
             real_B, _ = next(trainB_iter)
           real_A, real_B = real_A.to(self.device), real_B.to(self.device)
 
-          fake_A2B, _, fake_A2B_heatmap = self.genA2B(real_A)
-          fake_B2B, _, fake_B2B_heatmap = self.genA2B(real_B)
+          fake_A2B, _, fake_A2B_heatmap = self.generator(real_A)
+          fake_B2B, _, fake_B2B_heatmap = self.generator(real_B)
 
           A2B = np.concatenate((A2B, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_A[0]))),
                                                      cam(tensor2numpy(
@@ -507,9 +514,9 @@ class UGATIT_CUT(object):
             real_B, _ = next(testB_iter)
           real_A, real_B = real_A.to(self.device), real_B.to(self.device)
 
-          fake_A2B, _, fake_A2B_heatmap = self.genA2B(real_A)
+          fake_A2B, _, fake_A2B_heatmap = self.generator(real_A)
 
-          fake_B2B, _, fake_B2B_heatmap = self.genA2B(real_B)
+          fake_B2B, _, fake_B2B_heatmap = self.generator(real_B)
 
           A2B = np.concatenate((A2B, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_A[0]))),
                                                      cam(tensor2numpy(
@@ -529,16 +536,17 @@ class UGATIT_CUT(object):
                     'img', 'A2B_%07d.png' % step), A2B * 255.0)
         cv2.imwrite(os.path.join(self.result_dir, self.dataset,
                     'img', 'B2B_%07d.png' % step), B2B * 255.0)
-        self.genA2B.train(), self.disGB.train(),  self.disLB.train(), self.patch_sampler.train()
+        self.generator.train(), self.global_discriminator.train(
+        ),  self.local_discriminator.train(), self.patch_sampler.train()
 
       if step % self.save_freq == 0:
         self.save(os.path.join(self.result_dir, self.dataset, 'model'), step)
 
       if step % 1000 == 0:
         params = {}
-        params['genA2B'] = self.genA2B.state_dict()
-        params['disGB'] = self.disGB.state_dict()
-        params['disLB'] = self.disLB.state_dict()
+        params['generator'] = self.generator.state_dict()
+        params['global_discriminator'] = self.global_discriminator.state_dict()
+        params['local_discriminator'] = self.local_discriminator.state_dict()
         params['patch_sampler'] = self.patch_sampler.state_dict()
         torch.save(params, os.path.join(self.result_dir,
                    self.dataset + '_params_latest.pt'))
@@ -548,9 +556,9 @@ class UGATIT_CUT(object):
 
   def save(self, dir, step):
     params = {}
-    params['genA2B'] = self.genA2B.state_dict()
-    params['disGB'] = self.disGB.state_dict()
-    params['disLB'] = self.disLB.state_dict()
+    params['generator'] = self.generator.state_dict()
+    params['global_discriminator'] = self.global_discriminator.state_dict()
+    params['local_discriminator'] = self.local_discriminator.state_dict()
     params['patch_sampler'] = self.patch_sampler.state_dict()
 
     torch.save(params, os.path.join(
@@ -559,16 +567,16 @@ class UGATIT_CUT(object):
   def load(self, dir, step):
     params = torch.load(os.path.join(
         dir, self.dataset + '_params_%07d.pt' % step))
-    self.genA2B.load_state_dict(params['genA2B'])
-    self.disGB.load_state_dict(params['disGB'])
-    self.disLB.load_state_dict(params['disLB'])
+    self.generator.load_state_dict(params['generator'])
+    self.global_discriminator.load_state_dict(params['global_discriminator'])
+    self.local_discriminator.load_state_dict(params['local_discriminator'])
     # initialize patch sampler
     x = torch.ones(
         (self.batch_size, self.img_ch, self.img_size, self.img_size),
         device=self.device
     )
-    self.genA2B(x, nce=True)
-    self.patch_sampler(self.genA2B(x, nce=True))
+    self.generator(x, nce=True)
+    self.patch_sampler(self.generator(x, nce=True))
     self.patch_sampler.load_state_dict(params['patch_sampler'])
 
   def val(self, step: int):
@@ -585,14 +593,14 @@ class UGATIT_CUT(object):
     if not os.path.exists(model_with_step_translations_dir):
       os.mkdir(model_with_step_translations_dir)
 
-    self.genA2B.eval()
+    self.generator.eval()
 
     print('translating val...')
     for n, (real_A, _) in enumerate(self.valA_loader):
       real_A = real_A.to(self.device)
       img_path, _ = self.valA_loader.dataset.samples[n]
       img_name = Path(img_path).name.split('.')[0]
-      fake_A2B, _, _ = self.genA2B(real_A)
+      fake_A2B, _, _ = self.generator(real_A)
       cv2.imwrite(
           os.path.join(model_with_step_translations_dir,
                        f'{img_name}_fake_B.jpg'),
@@ -637,11 +645,11 @@ class UGATIT_CUT(object):
       print(" [*] Load FAILURE")
       return
 
-    self.genA2B.eval()
+    self.generator.eval()
     for n, (real_A, _) in enumerate(self.testA_loader):
       real_A = real_A.to(self.device)
 
-      fake_A2B, _, fake_A2B_heatmap = self.genA2B(real_A)
+      fake_A2B, _, fake_A2B_heatmap = self.generator(real_A)
 
       A2B = np.concatenate((RGB2BGR(tensor2numpy(denorm(real_A[0]))),
                             cam(tensor2numpy(
@@ -655,7 +663,7 @@ class UGATIT_CUT(object):
     for n, (real_B, _) in enumerate(self.testB_loader):
       real_B = real_B.to(self.device)
 
-      fake_B2B, _, fake_B2B_heatmap = self.genA2B(real_B)
+      fake_B2B, _, fake_B2B_heatmap = self.generator(real_B)
 
       B2B = np.concatenate((RGB2BGR(tensor2numpy(denorm(real_B[0]))),
                             cam(tensor2numpy(
@@ -706,14 +714,14 @@ class UGATIT_CUT(object):
     if not os.path.exists(full_translated_imgs_dir):
       os.mkdir(full_translated_imgs_dir)
 
-    self.genA2B.eval()
+    self.generator.eval()
 
     print('translating train...')
     for n, (real_A, _) in enumerate(self.trainA_loader):
       real_A = real_A.to(self.device)
       img_path, _ = self.trainA_loader.dataset.samples[n]
       img_name = Path(img_path).name.split('.')[0]
-      fake_A2B, _, _ = self.genA2B(real_A)
+      fake_A2B, _, _ = self.generator(real_A)
       print(os.path.join(train_translated_imgs_dir, f'{img_name}_fake_B.jpg'))
       cv2.imwrite(
           os.path.join(train_translated_imgs_dir, f'{img_name}_fake_B.jpg'),
@@ -729,7 +737,7 @@ class UGATIT_CUT(object):
         real_A = real_A.to(self.device)
         img_path, _ = self.valA_loader.dataset.samples[n]
         img_name = Path(img_path).name.split('.')[0]
-        fake_A2B, _, _ = self.genA2B(real_A)
+        fake_A2B, _, _ = self.generator(real_A)
         print(os.path.join(val_translated_imgs_dir, f'{img_name}_fake_B.jpg'))
         cv2.imwrite(
             os.path.join(val_translated_imgs_dir, f'{img_name}_fake_B.jpg'),
@@ -744,7 +752,7 @@ class UGATIT_CUT(object):
       real_A = real_A.to(self.device)
       img_path, _ = self.testA_loader.dataset.samples[n]
       img_name = Path(img_path).name.split('.')[0]
-      fake_A2B, _, _ = self.genA2B(real_A)
+      fake_A2B, _, _ = self.generator(real_A)
       print(os.path.join(test_translated_imgs_dir, f'{img_name}_fake_B.jpg'))
       cv2.imwrite(
           os.path.join(test_translated_imgs_dir, f'{img_name}_fake_B.jpg'),

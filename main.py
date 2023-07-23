@@ -85,7 +85,7 @@ def parse_args():
       help='temperature for NCE loss'
   )
   parser.add_argument(
-      '--nce_net_nc',
+      '--nce_patch_embedding_dim',
       type=int,
       default=256
   )
@@ -98,7 +98,7 @@ def parse_args():
   parser.add_argument(
       '--nce_layers',
       type=str,
-      default='0,5,9,12,16',
+      default='0,2,3,4,8',
       help='layers contributing to NCE'
   )
 
@@ -111,7 +111,7 @@ def parse_args():
   )
   parser.set_defaults(
       nce_idt=True,
-      nce_layers='0,5,9,12,16',
+      nce_layers='0,2,3,4,8',
       nce_weight=10.0
   )
 
