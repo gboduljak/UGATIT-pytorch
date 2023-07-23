@@ -562,6 +562,13 @@ class UGATIT_CUT(object):
     self.genA2B.load_state_dict(params['genA2B'])
     self.disGB.load_state_dict(params['disGB'])
     self.disLB.load_state_dict(params['disLB'])
+    # initialize patch sampler
+    x = torch.ones(
+        (self.batch_size, self.img_ch, self.img_size, self.img_size),
+        device=self.device
+    )
+    self.genA2B(x, nce=True)
+    self.patch_sampler(self.genA2B(x, nce=True))
     self.patch_sampler.load_state_dict(params['patch_sampler'])
 
   def val(self, step: int):
