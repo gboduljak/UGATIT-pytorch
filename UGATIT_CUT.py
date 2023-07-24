@@ -12,6 +12,7 @@ from torchvision import transforms
 
 from dataset import ImageFolder
 from generator import ResnetGenerator
+from ittr_generator import ITTRGenerator
 from networks import Discriminator, RhoClipper
 from patch_nce import PatchNCELoss
 from patch_sampler import PatchSampler
@@ -73,6 +74,10 @@ class UGATIT_CUT(object):
       print('set benchmark !')
       torch.backends.cudnn.benchmark = True
 
+    """ ITTR """
+    self.ittr = args.ittr
+    self.ittr_ada_lin = args.ittr_ada_lin
+
     print()
 
     print("##### Information #####")
@@ -104,6 +109,10 @@ class UGATIT_CUT(object):
     print("# nce layers : ", self.nce_layers)
     print("# nce patches : ", self.nce_n_patches)
     print("# nce patch embedding dim : ", self.nce_patch_embedding_dim)
+
+    if self.ittr:
+      print("##### ITTR #####")
+      print("# ITTR ada lin : ", self.ittr_ada_lin)
 
   ##################################################################################
   # Model
@@ -163,15 +172,27 @@ class UGATIT_CUT(object):
     self.testB_loader = DataLoader(self.testB, batch_size=1, shuffle=False)
 
     """ Define Generator, Discriminator """
-    self.generator = ResnetGenerator(
-        input_nc=3,
-        output_nc=3,
-        ngf=self.ch,
-        n_resnet_blocks=self.n_res,
-        nce_layers_indices=self.nce_layers,
-        img_size=self.img_size,
-        light=self.light
-    ).to(self.device)
+    if self.ittr:
+      self.generator = ITTRGenerator(
+          input_nc=3,
+          output_nc=3,
+          ngf=self.ch,
+          n_bottleneck_blocks=self.n_res,
+          nce_layers_indices=self.nce_layers,
+          img_size=self.img_size,
+          light=self.light,
+          ada_lin=self.ittr_ada_lin
+      ).to(self.device)
+    else:
+      self.generator = ResnetGenerator(
+          input_nc=3,
+          output_nc=3,
+          ngf=self.ch,
+          n_resnet_blocks=self.n_res,
+          nce_layers_indices=self.nce_layers,
+          img_size=self.img_size,
+          light=self.light
+      ).to(self.device)
     self.global_discriminator = Discriminator(
         input_nc=3,
         ndf=self.ch,
