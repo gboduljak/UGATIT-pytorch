@@ -15,6 +15,10 @@ def parse_args():
                       help='[U-GAT-IT full version / U-GAT-IT light version]')
   parser.add_argument('--dataset', type=str,
                       default='YOUR_DATASET_NAME', help='dataset_name')
+  parser.add_argument('--ckpt',
+                      type=str,
+                      default=None,
+                      help='checkpoint to load.')
 
   parser.add_argument('--iteration', type=int, default=500000,
                       help='The number of training iterations')
