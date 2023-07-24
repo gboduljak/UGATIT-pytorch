@@ -62,6 +62,7 @@ class UGATIT_CUT(object):
     self.benchmark_flag = args.benchmark_flag
     self.resume = args.resume
     self.seed = args.seed
+    self.noisy = args.noisy
 
     """ CUT """
     self.nce_weight = args.nce_weight
@@ -85,6 +86,7 @@ class UGATIT_CUT(object):
     print("# batch_size : ", self.batch_size)
     print("# iteration per epoch : ", self.iteration)
     print("# seed : ", self.seed)
+    print("# noisy : ", self.noisy)
 
     print()
 
@@ -173,7 +175,9 @@ class UGATIT_CUT(object):
         n_resnet_blocks=self.n_res,
         nce_layers_indices=self.nce_layers,
         img_size=self.img_size,
-        light=self.light
+        light=self.light,
+        noisy=self.noisy,
+        noise_generator=get_seeded_generator(self.seed, device=self.device)
     ).to(self.device)
     self.global_discriminator = Discriminator(
         input_nc=3,
@@ -466,8 +470,13 @@ class UGATIT_CUT(object):
       if step % self.print_freq == 0:
         train_sample_num = 5
         test_sample_num = 5
-        A2B = np.zeros((self.img_size * 3, 0, 3))
-        B2B = np.zeros((self.img_size * 3, 0, 3))
+
+        if not self.noisy:
+          A2B = np.zeros((self.img_size * 3, 0, 3))
+          B2B = np.zeros((self.img_size * 3, 0, 3))
+        else:
+          A2B = np.zeros((self.img_size * 5, 0, 3))
+          B2B = np.zeros((self.img_size * 3, 0, 3))
 
         self.generator.eval(),
         self.global_discriminator.eval(),
@@ -491,19 +500,40 @@ class UGATIT_CUT(object):
           fake_A2B, _, fake_A2B_heatmap = self.generator(real_A)
           fake_B2B, _, fake_B2B_heatmap = self.generator(real_B)
 
-          A2B = np.concatenate((A2B, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_A[0]))),
-                                                     cam(tensor2numpy(
-                                                         fake_A2B_heatmap[0]), self.img_size),
-                                                     RGB2BGR(tensor2numpy(
-                                                         denorm(fake_A2B[0]))),
-                                                     ), 0)), 1)
+          if not self.noisy:
+            A2B = np.concatenate((A2B, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_A[0]))),
+                                                      cam(tensor2numpy(
+                                                          fake_A2B_heatmap[0]), self.img_size),
+                                                      RGB2BGR(tensor2numpy(
+                                                          denorm(fake_A2B[0]))),
+                                                       ), 0)), 1)
 
-          B2B = np.concatenate((B2B, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_B[0]))),
-                                                     cam(tensor2numpy(
-                                                         fake_B2B_heatmap[0]), self.img_size),
-                                                     RGB2BGR(tensor2numpy(
-                                                         denorm(fake_B2B[0]))),
-                                                     ), 0)), 1)
+            B2B = np.concatenate((B2B, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_B[0]))),
+                                                      cam(tensor2numpy(
+                                                          fake_B2B_heatmap[0]), self.img_size),
+                                                      RGB2BGR(tensor2numpy(
+                                                          denorm(fake_B2B[0]))),
+                                                       ), 0)), 1)
+          if self.noisy:
+            fake_A2B_2, _, fake_A2B_heatmap_2 = self.generator(real_A)
+            fake_A2B_3, _, fake_A2B_heatmap_3 = self.generator(real_A)
+            A2B = np.concatenate((A2B, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_A[0]))),
+                                                      cam(tensor2numpy(
+                                                          fake_A2B_heatmap[0]), self.img_size),
+                                                      RGB2BGR(tensor2numpy(
+                                                          denorm(fake_A2B[0]))),
+                                                      RGB2BGR(tensor2numpy(
+                                                          denorm(fake_A2B_2[0]))),
+                                                      RGB2BGR(tensor2numpy(
+                                                          denorm(fake_A2B_3[0])))
+                                                       ), 0)), 1)
+
+            B2B = np.concatenate((B2B, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_B[0]))),
+                                                      cam(tensor2numpy(
+                                                          fake_B2B_heatmap[0]), self.img_size),
+                                                      RGB2BGR(tensor2numpy(
+                                                          denorm(fake_B2B[0]))),
+                                                       ), 0)), 1)
 
         for _ in range(test_sample_num):
           try:
@@ -522,13 +552,26 @@ class UGATIT_CUT(object):
           fake_A2B, _, fake_A2B_heatmap = self.generator(real_A)
 
           fake_B2B, _, fake_B2B_heatmap = self.generator(real_B)
-
-          A2B = np.concatenate((A2B, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_A[0]))),
-                                                     cam(tensor2numpy(
-                                                         fake_A2B_heatmap[0]), self.img_size),
-                                                     RGB2BGR(tensor2numpy(
-                                                         denorm(fake_A2B[0]))),
-                                                     ), 0)), 1)
+          if not self.noisy:
+            A2B = np.concatenate((A2B, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_A[0]))),
+                                                      cam(tensor2numpy(
+                                                          fake_A2B_heatmap[0]), self.img_size),
+                                                      RGB2BGR(tensor2numpy(
+                                                          denorm(fake_A2B[0]))),
+                                                       ), 0)), 1)
+          else:
+            fake_A2B_2, _, fake_A2B_heatmap_2 = self.generator(real_A)
+            fake_A2B_3, _, fake_A2B_heatmap_3 = self.generator(real_A)
+            A2B = np.concatenate((A2B, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_A[0]))),
+                                                      cam(tensor2numpy(
+                                                          fake_A2B_heatmap[0]), self.img_size),
+                                                      RGB2BGR(tensor2numpy(
+                                                          denorm(fake_A2B[0]))),
+                                                      RGB2BGR(tensor2numpy(
+                                                          denorm(fake_A2B_2[0]))),
+                                                      RGB2BGR(tensor2numpy(
+                                                          denorm(fake_A2B_3[0])))
+                                                       ), 0)), 1)
 
           B2B = np.concatenate((B2B, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_B[0]))),
                                                      cam(tensor2numpy(

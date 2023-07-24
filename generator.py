@@ -1,4 +1,4 @@
-from typing import List, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -96,21 +96,32 @@ class CAMAttention(nn.Module):
 
 
 class AdaLINParamsInferenceNet(nn.Module):
-  def __init__(self, ngf: int, mult: int, img_size: int,  light: bool):
+  def __init__(self, ngf: int, mult: int, img_size: int, light: bool, noisy: bool, noise_generator: Optional[torch.Generator] = None):
     super(AdaLINParamsInferenceNet, self).__init__()
 
     self.light = light
+    self.noisy = noisy
+    self.noise_generator = noise_generator
+
+    noisy_mult = 1 if not noisy else 2
+
     if self.light:
       self.fc = nn.Sequential(
+          nn.Linear(ngf * mult * noisy_mult, ngf * mult, bias=False),
+          nn.ReLU(True),
           nn.Linear(ngf * mult, ngf * mult, bias=False),
           nn.ReLU(True),
           nn.Linear(ngf * mult, ngf * mult, bias=False),
-          nn.ReLU(True)
+          nn.ReLU(True),
+          nn.Linear(ngf * mult, ngf * mult, bias=False),
+          nn.ReLU(True),
       )
     else:
+      if self.noisy:
+        raise NotImplementedError
       self.fc = nn.Sequential(
           nn.Linear(
-              img_size // mult * img_size // mult * ngf * mult,
+              (img_size // mult * img_size // mult * ngf * mult),
               ngf * mult,
               bias=False
           ),
@@ -124,6 +135,13 @@ class AdaLINParamsInferenceNet(nn.Module):
   def forward(self, x: torch.Tensor):
     if self.light:
       x_ = F.adaptive_avg_pool2d(x, 1)
+      if self.noisy:
+        z_ = torch.randn(
+            x_.shape,
+            generator=self.noise_generator,
+            device=x_.device
+        )
+        x_ = torch.cat([x_, z_], dim=1)
       x_ = self.fc(x_.view(x_.shape[0], -1))
     else:
       x_ = self.fc(x.view(x.shape[0], -1))
@@ -140,6 +158,8 @@ class ResnetGenerator(nn.Module):
                img_size=256,
                light=True,
                nce_layers_indices: List[int] = [],
+               noisy: bool = False,
+               noise_generator: Optional[torch.Generator] = None
                ):
     super(ResnetGenerator, self).__init__()
 
@@ -156,6 +176,11 @@ class ResnetGenerator(nn.Module):
     self.nce_layers_indices = nce_layers_indices
     self.img_size = img_size
     self.light = light
+    self.noisy = noisy
+    self.noise_generator = noise_generator
+
+    if self.noisy:
+      assert self.noise_generator
 
     self.enc_down = nn.ModuleList([
         nn.Identity(),
@@ -189,10 +214,22 @@ class ResnetGenerator(nn.Module):
       self.enc_bottleneck += [ResnetBlock(ngf * mult, use_bias=False)]
 
     self.cam = CAMAttention(ngf * mult)
-    self.ada_lin_infer = AdaLINParamsInferenceNet(ngf, mult, img_size, light)
+    self.ada_lin_infer = AdaLINParamsInferenceNet(
+        ngf,
+        mult,
+        img_size,
+        light,
+        noisy,
+        noise_generator
+    )
 
     self.dec_bottleneck = nn.ModuleList([
-        ResnetAdaILNBlock(dim=ngf * mult, use_bias=False) for _ in range(self.n_resnet_dec_blocks)
+        ResnetAdaILNBlock(
+            dim=ngf * mult,
+            use_bias=False,
+            noisy=self.noisy,
+            noise_generator=self.noise_generator
+        ) for _ in range(self.n_resnet_dec_blocks)
     ])
 
     self.dec_up = nn.ModuleList([])

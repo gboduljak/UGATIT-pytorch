@@ -1,8 +1,23 @@
-from typing import List
+from typing import List, Optional
 
 import torch
 import torch.nn as nn
 from torch.nn.parameter import Parameter
+
+
+class InjectNoise(nn.Module):
+  def __init__(self, channels, noise_generator):
+    super().__init__()
+    self.weight = nn.Parameter(torch.randn(channels)[None, :, None, None])
+    self.noise_generator = noise_generator
+
+  def forward(self, image):
+    noise_shape = (image.shape[0], 1, image.shape[2], image.shape[3])
+    noise = torch.randn(noise_shape,
+                        device=image.device,
+                        generator=self.noise_generator)
+    out = image + self.weight * noise
+    return out
 
 
 class ResnetGenerator(nn.Module):
@@ -62,8 +77,11 @@ class ResnetGenerator(nn.Module):
 
     # Up-Sampling Bottleneck
     for i in range(n_blocks):
-      setattr(self, 'UpBlock1_' + str(i+1),
-              ResnetAdaILNBlock(ngf * mult, use_bias=False))
+      setattr(
+          self,
+          'UpBlock1_' + str(i+1),
+          ResnetAdaILNBlock(ngf * mult, use_bias=False)
+      )
 
     # Up-Sampling
     UpBlock2 = []
@@ -152,28 +170,36 @@ class ResnetBlock(nn.Module):
 
 
 class ResnetAdaILNBlock(nn.Module):
-  def __init__(self, dim, use_bias):
+  def __init__(self, dim, use_bias, noisy=False, noise_generator: Optional[torch.Generator] = None):
     super(ResnetAdaILNBlock, self).__init__()
+    self.noisy = noisy
     self.pad1 = nn.ReflectionPad2d(1)
     self.conv1 = nn.Conv2d(dim, dim, kernel_size=3,
                            stride=1, padding=0, bias=use_bias)
+    if noisy:
+      self.noise1 = InjectNoise(dim, noise_generator)
     self.norm1 = adaILN(dim)
     self.relu1 = nn.ReLU(True)
 
     self.pad2 = nn.ReflectionPad2d(1)
     self.conv2 = nn.Conv2d(dim, dim, kernel_size=3,
                            stride=1, padding=0, bias=use_bias)
+    if noisy:
+      self.noise2 = InjectNoise(dim, noise_generator)
     self.norm2 = adaILN(dim)
 
   def forward(self, x, gamma, beta):
     out = self.pad1(x)
     out = self.conv1(out)
+    if self.noisy:
+      out = self.noise1(out)
     out = self.norm1(out, gamma, beta)
     out = self.relu1(out)
     out = self.pad2(out)
     out = self.conv2(out)
+    if self.noisy:
+      out = self.noise2(out)
     out = self.norm2(out, gamma, beta)
-
     return out + x
 
 

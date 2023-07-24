@@ -105,6 +105,10 @@ def parse_args():
       default='0,2,3,4,8',
       help='layers contributing to NCE'
   )
+  parser.add_argument('--noisy',
+                      type=str2bool,
+                      default=False,
+                      help='Is generator deterministic?')
 
   # full CUT
   # parser.set_defaults(nce_idt=True, nce_weight=1.0)

@@ -12,8 +12,8 @@ def seeded_worker_init_fn(worker_id: int):
   random.seed(worker_seed)
 
 
-def get_seeded_generator(seed: int):
-  g = torch.Generator()
+def get_seeded_generator(seed: int, device: torch.device = torch.device('cpu')):
+  g = torch.Generator(device=device)
   g.manual_seed(seed)
   return g
 
