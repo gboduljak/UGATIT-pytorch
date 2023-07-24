@@ -31,6 +31,7 @@ class UGATIT_CUT(object):
 
     self.result_dir = args.result_dir
     self.dataset = args.dataset
+    self.ckpt = args.ckpt
 
     self.iteration = args.iteration
     self.decay_flag = args.decay_flag
@@ -79,6 +80,8 @@ class UGATIT_CUT(object):
     print("# cut : ", self.cut)
     print("# light : ", self.light)
     print("# dataset : ", self.dataset)
+    if self.ckpt:
+      print("# ckpt : ", self.ckpt)
     print("# batch_size : ", self.batch_size)
     print("# iteration per epoch : ", self.iteration)
     print("# seed : ", self.seed)
@@ -289,8 +292,7 @@ class UGATIT_CUT(object):
       if not len(model_list) == 0:
         model_list.sort()
         start_iter = int(model_list[-1].split('_')[-1].split('.')[0])
-        self.load(os.path.join(self.result_dir,
-                  self.dataset, 'model'), start_iter)
+        self.load(ckpt='params_%07d.pt' % start_iter)
         print(" [*] Load SUCCESS")
         if self.decay_flag and start_iter > (self.iteration // 2):
           self.G_optim.param_groups[0]['lr'] -= (self.lr / (
@@ -543,15 +545,15 @@ class UGATIT_CUT(object):
         ),  self.local_discriminator.train(), self.patch_sampler.train()
 
       if step % self.save_freq == 0:
-        self.save(params_file_name=self.dataset + '_params_%07d.pt' % step)
+        self.save(ckpt_file_name='params_%07d.pt' % step)
 
       if step % 1000 == 0:
-        self.save(params_file_name=self.dataset + '_params_latest.pt')
+        self.save(ckpt_file_name='params_latest.pt')
 
       if step % self.val_freq == 0:
         self.val(step)
 
-  def save(self, params_file_name: str):
+  def save(self, ckpt_file_name: str):
     params = {}
     params['generator'] = self.generator.state_dict()
     params['global_discriminator'] = self.global_discriminator.state_dict()
@@ -563,13 +565,19 @@ class UGATIT_CUT(object):
             self.result_dir,
             self.dataset,
             'model',
-            params_file_name
+            ckpt_file_name
         )
     )
 
-  def load(self, dir, step):
-    params = torch.load(os.path.join(
-        dir, self.dataset + '_params_%07d.pt' % step))
+  def load(self, cktpt_file_name: str):
+    params = torch.load(
+        os.path.join(
+            self.result_dir,
+            self.dataset,
+            'model',
+            cktpt_file_name
+        )
+    )
     self.generator.load_state_dict(params['generator'])
     self.global_discriminator.load_state_dict(params['global_discriminator'])
     self.local_discriminator.load_state_dict(params['local_discriminator'])
@@ -590,7 +598,7 @@ class UGATIT_CUT(object):
 
     model_with_step_translations_dir = Path(
         model_val_translations_dir,
-        f'step-{step}'
+        'params_%07d' % step
     )
 
     if not os.path.exists(model_with_step_translations_dir):
@@ -638,7 +646,7 @@ class UGATIT_CUT(object):
 
     if metrics['frechet_inception_distance'] < self.smallest_val_fid:
       self.smallest_val_fid = metrics['frechet_inception_distance']
-      self.save(params_file_name=self.dataset + f'_params_smallest_val_fid.pt')
+      self.save(ckpt_file_name=f'params_smallest_val_fid.pt')
       smallest_val_fid_file = Path(
           self.result_dir,
           self.dataset, 'smallest_val_fid.txt'
@@ -654,12 +662,17 @@ class UGATIT_CUT(object):
         )
 
   def test(self):
-    model_list = glob(os.path.join(
-        self.result_dir, self.dataset, 'model', '*.pt'))
+    model_list = glob(
+        os.path.join(
+            self.result_dir,
+            self.dataset,
+            'model',
+            '*.pt'
+        )
+    )
     if not len(model_list) == 0:
-      model_list.sort()
-      iter = int(model_list[-1].split('_')[-1].split('.')[0])
-      self.load(os.path.join(self.result_dir, self.dataset, 'model'), iter)
+      assert self.ckpt
+      self.load(cktpt_file_name=self.ckpt)
       print(" [*] Load SUCCESS")
     else:
       print(" [*] Load FAILURE")
@@ -695,12 +708,16 @@ class UGATIT_CUT(object):
                   'test', 'B2B_%d.png' % (n + 1)), B2B * 255.0)
 
   def translate(self):
-    model_list = glob(os.path.join(
-        self.result_dir, self.dataset, 'model', '*.pt'))
+    model_list = glob(
+        os.path.join(
+            self.result_dir,
+            self.dataset,
+            'model',
+            '*.pt'
+        )
+    )
     if not len(model_list) == 0:
-      model_list.sort()
-      self.load(os.path.join(self.result_dir,
-                self.dataset, 'model'), self.iteration)
+      self.load(cktpt_file_name=self.ckpt)
       print(" [*] Load SUCCESS")
     else:
       print(" [*] Load FAILURE")
@@ -713,17 +730,18 @@ class UGATIT_CUT(object):
     if not os.path.exists(model_translations_dir):
       os.mkdir(model_translations_dir)
 
-    model_with_iters_translations_dir = Path(
-        model_translations_dir, f'iter-{self.iteration}'
+    model_with_ckpt_translations_dir = Path(
+        model_translations_dir,
+        Path(self.ckpt).stem
     )
-    if not os.path.exists(model_with_iters_translations_dir):
-      os.mkdir(model_with_iters_translations_dir)
+    if not os.path.exists(model_with_ckpt_translations_dir):
+      os.mkdir(model_with_ckpt_translations_dir)
 
-    train_translated_imgs_dir = Path(model_with_iters_translations_dir, 'train')
+    train_translated_imgs_dir = Path(model_with_ckpt_translations_dir, 'train')
     if self.valA:
-      val_translated_imgs_dir = Path(model_with_iters_translations_dir, 'val')
-    test_translated_imgs_dir = Path(model_with_iters_translations_dir, 'test')
-    full_translated_imgs_dir = Path(model_with_iters_translations_dir, 'full')
+      val_translated_imgs_dir = Path(model_with_ckpt_translations_dir, 'val')
+    test_translated_imgs_dir = Path(model_with_ckpt_translations_dir, 'test')
+    full_translated_imgs_dir = Path(model_with_ckpt_translations_dir, 'full')
 
     if not os.path.exists(train_translated_imgs_dir):
       os.mkdir(train_translated_imgs_dir)
