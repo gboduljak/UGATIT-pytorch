@@ -15,7 +15,8 @@ class DownsampleBlock(nn.Sequential):
                stride: int,
                reflection_padding: int,
                padding: int,
-               bias: bool
+               bias: bool,
+               activation: nn.Module,
                ):
     super().__init__(
         nn.ReflectionPad2d(reflection_padding),
@@ -28,7 +29,7 @@ class DownsampleBlock(nn.Sequential):
             bias=bias
         ),
         nn.InstanceNorm2d(out_channels),
-        nn.ReLU(True)
+        activation
     )
 
 
@@ -61,7 +62,7 @@ class UpsampleBlock(nn.Sequential):
 
 
 class CAMAttention(nn.Module):
-  def __init__(self, channels: int):
+  def __init__(self, channels: int, activation: nn.Module):
     super(CAMAttention, self).__init__()
 
     self.gap_fc = nn.Linear(in_features=channels, out_features=1, bias=False)
@@ -73,7 +74,7 @@ class CAMAttention(nn.Module):
         stride=1,
         bias=True
     )
-    self.relu = nn.ReLU(True)
+    self.activation = activation
 
   def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     gap = F.adaptive_avg_pool2d(x, 1)
@@ -88,7 +89,7 @@ class CAMAttention(nn.Module):
 
     cam_logit = torch.cat([gap_logit, gmp_logit], 1)
     x = torch.cat([gap, gmp], 1)
-    x = self.relu(self.conv1x1(x))
+    x = self.activation(self.conv1x1(x))
 
     heatmap = torch.sum(x, dim=1, keepdim=True)
 
@@ -166,7 +167,8 @@ class ResnetGenerator(nn.Module):
             kernel_size=7,
             stride=1,
             padding=0,
-            bias=False
+            bias=False,
+            activation=nn.ReLU(True)
         )
     ])
     for i in range(n_downsampling):
@@ -179,7 +181,8 @@ class ResnetGenerator(nn.Module):
               kernel_size=3,
               stride=2,
               padding=0,
-              bias=False
+              bias=False,
+              activation=nn.ReLU(True)
           )
       ]
 
@@ -188,7 +191,7 @@ class ResnetGenerator(nn.Module):
     for i in range(self.n_resnet_enc_blocks):
       self.enc_bottleneck += [ResnetBlock(ngf * mult, use_bias=False)]
 
-    self.cam = CAMAttention(ngf * mult)
+    self.cam = CAMAttention(channels=ngf * mult, activation=nn.ReLU(True))
     self.ada_lin_infer = AdaLINParamsInferenceNet(ngf, mult, img_size, light)
 
     self.dec_bottleneck = nn.ModuleList([

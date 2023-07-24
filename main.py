@@ -16,6 +16,8 @@ def parse_args():
                       help='[U-GAT-IT full version / U-GAT-IT light version]')
   parser.add_argument('--cut', type=str2bool, default=False,
                       help='[CUT or NOT CUT]')
+  parser.add_argument('--ittr', type=str2bool, default=False,
+                      help='[ITTR or NOT ITTR]')
   parser.add_argument('--dataset', type=str,
                       default='YOUR_DATASET_NAME', help='dataset_name')
 
@@ -100,6 +102,12 @@ def parse_args():
       type=str,
       default='0,2,3,4,8',
       help='layers contributing to NCE'
+  )
+
+  parser.add_argument(
+      '--ittr_ada_lin',
+      type=str2bool,
+      default=True,
   )
 
   # full CUT
