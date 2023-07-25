@@ -16,6 +16,10 @@ def parse_args():
                       help='[U-GAT-IT full version / U-GAT-IT light version]')
   parser.add_argument('--cut', type=str2bool, default=False,
                       help='[CUT or NOT CUT]')
+  parser.add_argument('--generator_type', type=str,
+                      default='resnet',
+                      choices=['resnet', 'stargan'],
+                      help='set generator type.')
   parser.add_argument('--dataset', type=str,
                       default='YOUR_DATASET_NAME', help='dataset_name')
   parser.add_argument('--ckpt',
@@ -49,7 +53,6 @@ def parse_args():
                       default=10, help='Weight for Identity')
   parser.add_argument('--cam_weight', type=int,
                       default=1000, help='Weight for CAM')
-
   parser.add_argument('--nce_weight', type=float, default=1.0,
                       help='weight for NCE loss: NCE(G(X), X)')
 
@@ -69,7 +72,8 @@ def parse_args():
                       help='Directory name to save the results')
   parser.add_argument('--device', type=str, default='cuda',
                       choices=['cpu', 'cuda', 'mps'],
-                      help='Set gpu mode; [cpu, cuda, mps')
+                      help='Set gpu mode; [cpu, cuda, mps]')
+
   parser.add_argument('--benchmark_flag', type=str2bool, default=False)
   parser.add_argument('--resume', type=str2bool, default=False)
   parser.add_argument('--seed', type=int, default=269902365, help='Seed')
@@ -105,7 +109,21 @@ def parse_args():
       default='0,2,3,4,8',
       help='layers contributing to NCE'
   )
-
+  parser.add_argument(
+      '--stargan_generator_max_conv_dim',
+      type=int,
+      default=256,
+  )
+  parser.add_argument(
+      '--stargan_generator_use_ada_in_params_net',
+      type=str2bool,
+      default=True,
+  )
+  parser.add_argument(
+      '--stargan_generator_ada_in_params_dim',
+      type=int,
+      default=64,
+  )
   # full CUT
   # parser.set_defaults(nce_idt=True, nce_weight=1.0)
 

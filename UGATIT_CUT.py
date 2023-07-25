@@ -16,6 +16,7 @@ from networks import Discriminator, RhoClipper
 from patch_nce import PatchNCELoss
 from patch_sampler import PatchSampler
 from seed import get_seeded_generator, seed_everything, seeded_worker_init_fn
+from stargan_generator import StarGANGenerator
 from utils import *
 
 
@@ -32,6 +33,7 @@ class UGATIT_CUT(object):
     self.result_dir = args.result_dir
     self.dataset = args.dataset
     self.ckpt = args.ckpt
+    self.generator_type = args.generator_type
 
     self.iteration = args.iteration
     self.decay_flag = args.decay_flag
@@ -70,6 +72,11 @@ class UGATIT_CUT(object):
     self.nce_n_patches = args.nce_n_patches
     self.nce_layers = [int(x) for x in args.nce_layers.split(',')]
 
+    """ StarGAN """
+    self.stargan_generator_max_conv_dim = args.stargan_generator_max_conv_dim
+    self.stargan_generator_use_ada_in_params_net = args.stargan_generator_use_ada_in_params_net
+    self.stargan_generator_ada_in_params_dim = args.stargan_generator_ada_in_params_dim
+
     if torch.backends.cudnn.enabled and self.benchmark_flag:
       print('set benchmark !')
       torch.backends.cudnn.benchmark = True
@@ -89,7 +96,9 @@ class UGATIT_CUT(object):
     print()
 
     print("##### Generator #####")
-    print("# residual blocks : ", self.n_res)
+    print("# type: ", self.generator_type)
+    if self.generator_type == 'resnet':
+      print("# residual blocks : ", self.n_res)
     print()
 
     print("##### Discriminator #####")
@@ -166,15 +175,24 @@ class UGATIT_CUT(object):
     self.testB_loader = DataLoader(self.testB, batch_size=1, shuffle=False)
 
     """ Define Generator, Discriminator """
-    self.generator = ResnetGenerator(
-        input_nc=3,
-        output_nc=3,
-        ngf=self.ch,
-        n_resnet_blocks=self.n_res,
-        nce_layers_indices=self.nce_layers,
-        img_size=self.img_size,
-        light=self.light
-    ).to(self.device)
+    if self.generator_type == 'stargan':
+      self.generator = StarGANGenerator(
+          img_size=self.img_size,
+          nce_layers_indices=self.nce_layers,
+          max_conv_dim=self.stargan_generator_max_conv_dim,
+          use_ada_in_params_net=self.stargan_generator_use_ada_in_params_net,
+          ada_in_params_dim=self.stargan_generator_ada_in_params_dim
+      ).to(self.device)
+    else:
+      self.generator = ResnetGenerator(
+          input_nc=3,
+          output_nc=3,
+          ngf=self.ch,
+          n_resnet_blocks=self.n_res,
+          nce_layers_indices=self.nce_layers,
+          img_size=self.img_size,
+          light=self.light
+      ).to(self.device)
     self.global_discriminator = Discriminator(
         input_nc=3,
         ndf=self.ch,
