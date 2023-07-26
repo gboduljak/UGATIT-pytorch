@@ -64,7 +64,8 @@ def parse_args():
                       help='The size of image')
   parser.add_argument('--img_ch', type=int, default=3,
                       help='The size of image channel')
-
+  parser.add_argument('--style_code_dim', type=int, default=64,
+                      help='The size of style_code')
   parser.add_argument('--result_dir', type=str, default='results',
                       help='Directory name to save the results')
   parser.add_argument('--device', type=str, default='cuda',

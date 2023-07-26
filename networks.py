@@ -152,39 +152,44 @@ class ResnetBlock(nn.Module):
 
 
 class ResnetAdaILNBlock(nn.Module):
-  def __init__(self, dim, use_bias):
+  def __init__(self, dim, use_bias, style_code_dim: int = 64):
     super(ResnetAdaILNBlock, self).__init__()
+
     self.pad1 = nn.ReflectionPad2d(1)
     self.conv1 = nn.Conv2d(dim, dim, kernel_size=3,
                            stride=1, padding=0, bias=use_bias)
-    self.norm1 = adaILN(dim)
+    self.norm1 = adaILN(dim, style_code_dim)
     self.relu1 = nn.ReLU(True)
 
     self.pad2 = nn.ReflectionPad2d(1)
     self.conv2 = nn.Conv2d(dim, dim, kernel_size=3,
                            stride=1, padding=0, bias=use_bias)
-    self.norm2 = adaILN(dim)
+    self.norm2 = adaILN(dim, style_code_dim)
 
-  def forward(self, x, gamma, beta):
+  def forward(self, x, s):
     out = self.pad1(x)
     out = self.conv1(out)
-    out = self.norm1(out, gamma, beta)
+    out = self.norm1(out, s)
     out = self.relu1(out)
     out = self.pad2(out)
     out = self.conv2(out)
-    out = self.norm2(out, gamma, beta)
+    out = self.norm2(out, s)
 
     return out + x
 
 
 class adaILN(nn.Module):
-  def __init__(self, num_features, eps=1e-5):
+  def __init__(self, num_features, style_code_dim, eps=1e-5):
     super(adaILN, self).__init__()
     self.eps = eps
+    self.fc = nn.Linear(style_code_dim, num_features*2)
     self.rho = Parameter(torch.Tensor(1, num_features, 1, 1))
     self.rho.data.fill_(0.9)
 
-  def forward(self, input, gamma, beta):
+  def forward(self, input, style_code):
+    h = self.fc(style_code)
+    gamma, beta = torch.chunk(h, chunks=2, dim=1)
+
     in_mean, in_var = torch.mean(input, dim=[2, 3], keepdim=True), torch.var(
         input, dim=[2, 3], keepdim=True)
     out_in = (input - in_mean) / torch.sqrt(in_var + self.eps)

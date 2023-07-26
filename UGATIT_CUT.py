@@ -51,7 +51,7 @@ class UGATIT_CUT(object):
 
     """ Generator """
     self.n_res = args.n_res
-
+    self.style_code_dim = args.style_code_dim
     """ Discriminator """
     self.n_dis = args.n_dis
 
@@ -90,6 +90,7 @@ class UGATIT_CUT(object):
 
     print("##### Generator #####")
     print("# residual blocks : ", self.n_res)
+    print("# style code dim: ", self.style_code_dim)
     print()
 
     print("##### Discriminator #####")
@@ -194,7 +195,7 @@ class UGATIT_CUT(object):
     )
 
     print('Generator:')
-    print(self.generator)
+    print(self.generator.layers)
     print(f'total params: {get_total_model_params(self.generator)}')
     print(
         f'total trainable params: {get_total_trainable_model_params(self.generator)}'

@@ -95,39 +95,38 @@ class CAMAttention(nn.Module):
     return x, cam_logit, heatmap
 
 
-class AdaLINParamsInferenceNet(nn.Module):
-  def __init__(self, ngf: int, mult: int, img_size: int,  light: bool):
-    super(AdaLINParamsInferenceNet, self).__init__()
+class AdaLINStyleCodeNetwork(nn.Module):
+  def __init__(self, in_channels: int, out_dim: int):
+    super(AdaLINStyleCodeNetwork, self).__init__()
 
-    self.light = light
-    if self.light:
-      self.fc = nn.Sequential(
-          nn.Linear(ngf * mult, ngf * mult, bias=False),
-          nn.ReLU(True),
-          nn.Linear(ngf * mult, ngf * mult, bias=False),
-          nn.ReLU(True)
-      )
-    else:
-      self.fc = nn.Sequential(
-          nn.Linear(
-              img_size // mult * img_size // mult * ngf * mult,
-              ngf * mult,
-              bias=False
-          ),
-          nn.ReLU(True),
-          nn.Linear(ngf * mult, ngf * mult, bias=False),
-          nn.ReLU(True)
-      )
-    self.gamma = nn.Linear(ngf * mult, ngf * mult, bias=False)
-    self.beta = nn.Linear(ngf * mult, ngf * mult, bias=False)
+    self.nn = nn.Sequential(
+        nn.Linear(
+            in_features=2*in_channels,
+            out_features=in_channels
+        ),
+        nn.LeakyReLU(0.2),
+        nn.Linear(
+            in_features=in_channels,
+            out_features=in_channels
+        ),
+        nn.LeakyReLU(0.2),
+        nn.Linear(
+            in_features=in_channels,
+            out_features=in_channels
+        ),
+        nn.LeakyReLU(0.2),
+        nn.Linear(
+            in_features=in_channels,
+            out_features=out_dim
+        ),
+    )
 
   def forward(self, x: torch.Tensor):
-    if self.light:
-      x_ = F.adaptive_avg_pool2d(x, 1)
-      x_ = self.fc(x_.view(x_.shape[0], -1))
-    else:
-      x_ = self.fc(x.view(x.shape[0], -1))
-    return self.gamma(x_), self.beta(x_)
+    batch_size, _, _, _ = x.shape
+    x_avg = F.adaptive_avg_pool2d(x, 1)
+    x_max = F.adaptive_max_pool2d(x, 1)
+    x_summary = torch.cat((x_avg, x_max), dim=1).view((batch_size, -1))
+    return self.nn(x_summary)
 
 
 class ResnetGenerator(nn.Module):
@@ -137,6 +136,7 @@ class ResnetGenerator(nn.Module):
                ngf=64,
                n_resnet_blocks=9,
                n_downsampling=2,
+               style_code_dim: int = 64,
                img_size=256,
                light=True,
                nce_layers_indices: List[int] = [],
@@ -189,10 +189,17 @@ class ResnetGenerator(nn.Module):
       self.enc_bottleneck += [ResnetBlock(ngf * mult, use_bias=False)]
 
     self.cam = CAMAttention(ngf * mult)
-    self.ada_lin_infer = AdaLINParamsInferenceNet(ngf, mult, img_size, light)
+    self.ada_lin_infer = AdaLINStyleCodeNetwork(
+        in_channels=ngf*mult,
+        out_dim=style_code_dim
+    )
 
     self.dec_bottleneck = nn.ModuleList([
-        ResnetAdaILNBlock(dim=ngf * mult, use_bias=False) for _ in range(self.n_resnet_dec_blocks)
+        ResnetAdaILNBlock(
+            dim=ngf * mult,
+            use_bias=False,
+            style_code_dim=style_code_dim
+        ) for _ in range(self.n_resnet_dec_blocks)
     ])
 
     self.dec_up = nn.ModuleList([])
@@ -264,10 +271,10 @@ class ResnetGenerator(nn.Module):
     if nce and self.cam == final_nce_layer:
       return nce_layers_outs
 
-    gamma, beta = self.ada_lin_infer(x)
+    s = self.ada_lin_infer(x)
 
     for layer in self.dec_bottleneck:
-      x = layer(x, gamma, beta)
+      x = layer(x, s)
       if layer in nce_layers:
         nce_layers_outs.append(x)
       if nce and layer == final_nce_layer:
