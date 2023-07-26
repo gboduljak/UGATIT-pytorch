@@ -18,7 +18,7 @@ def parse_args():
                       help='[CUT or NOT CUT]')
   parser.add_argument('--generator_type', type=str,
                       default='resnet',
-                      choices=['resnet', 'stargan'],
+                      choices=['resnet', 'stargan', 'hybrid'],
                       help='set generator type.')
   parser.add_argument('--dataset', type=str,
                       default='YOUR_DATASET_NAME', help='dataset_name')

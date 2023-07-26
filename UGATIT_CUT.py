@@ -12,6 +12,7 @@ from torchvision import transforms
 
 from dataset import ImageFolder
 from generator import ResnetGenerator
+from hybrid_generator import HybridGenerator
 from networks import Discriminator, RhoClipper
 from patch_nce import PatchNCELoss
 from patch_sampler import PatchSampler
@@ -179,6 +180,15 @@ class UGATIT_CUT(object):
       self.generator = StarGANGenerator(
           img_size=self.img_size,
           nce_layers_indices=self.nce_layers,
+          max_conv_dim=self.stargan_generator_max_conv_dim,
+          use_ada_in_params_net=self.stargan_generator_use_ada_in_params_net,
+          ada_in_params_dim=self.stargan_generator_ada_in_params_dim
+      ).to(self.device)
+    elif self.generator_type == 'hybrid':
+      self.generator = HybridGenerator(
+          img_size=self.img_size,
+          nce_layers_indices=self.nce_layers,
+          n_bottleneck=self.n_res,
           max_conv_dim=self.stargan_generator_max_conv_dim,
           use_ada_in_params_net=self.stargan_generator_use_ada_in_params_net,
           ada_in_params_dim=self.stargan_generator_ada_in_params_dim
