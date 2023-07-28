@@ -1,5 +1,6 @@
 import argparse
 
+from qsa_patch_sampler import QSAType
 from UGATIT import UGATIT
 from UGATIT_CUT import UGATIT_CUT
 from utils import *
@@ -16,6 +17,13 @@ def parse_args():
                       help='[U-GAT-IT full version / U-GAT-IT light version]')
   parser.add_argument('--cut', type=str2bool, default=False,
                       help='[CUT or NOT CUT]')
+  parser.add_argument('--cut_type', type=str, default='vanilla',
+                      choices=['vanilla',
+                               QSAType.GLOBAL,
+                               QSAType.LOCAL,
+                               QSAType.GLOBAL_AND_LOCAL],
+                      help='Set cut sampling type.')
+
   parser.add_argument('--dataset', type=str,
                       default='YOUR_DATASET_NAME', help='dataset_name')
   parser.add_argument('--ckpt',
@@ -105,13 +113,19 @@ def parse_args():
       default='0,2,3,4,8',
       help='layers contributing to NCE'
   )
+  parser.add_argument(
+      '--qsa_max_spatial_size',
+      type=int,
+      default=64 * 64,
+      help='max spatial size of layer for QSA sampling'
+  )
 
   # full CUT
   # parser.set_defaults(nce_idt=True, nce_weight=1.0)
 
   # default for U-GAT-IT-CUT
   parser.set_defaults(
-      lr=0.0002
+      lr=0.0001
   )
   parser.set_defaults(
       nce_idt=True,

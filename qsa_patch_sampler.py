@@ -7,7 +7,6 @@ from einops import einsum, rearrange
 from strenum import StrEnum
 
 from batch_index_select import *
-from paper_qsa_patch_sampler import Normalize
 
 # TODO: We are using different initialization of MLPs in comparison to the paper.
 # It might be necessary to verify consequences of this.
@@ -32,6 +31,7 @@ class QSAPatchSampler(nn.Module):
     self.num_patches_per_layer = num_patches_per_layer
     self.qsa_type = qsa_type
     self.max_spatial_size = max_spatial_size
+    self.attn_layers = []
     assert (self.qsa_type == QSAType.GLOBAL)  # only this is implemented for now
     self.device = device
 
@@ -56,6 +56,8 @@ class QSAPatchSampler(nn.Module):
               )
           ).to(self.device)
       )
+      if (H * W <= self.max_spatial_size):
+        self.attn_layers.append(mlp_id)
 
     self.mlps_init = True
 
@@ -63,7 +65,8 @@ class QSAPatchSampler(nn.Module):
               layer_outs: List[torch.Tensor],
               patch_idx_per_layer: List[Optional[torch.Tensor]] = [],
               attn_map_per_layer: List[Optional[torch.Tensor]] = [],
-              apply_mlp: bool = True
+              apply_mlp: bool = True,
+              return_only_full_attn_maps: bool = False,
               ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
     # rules: Use patch_idx_per_layer if we have it. Use layer_attn_map if we have it. Otherwise, sample.
     self.create_mlps_if_necessary(layer_outs)
@@ -71,6 +74,9 @@ class QSAPatchSampler(nn.Module):
     sampled_patches = []
     sampled_patches_idx = []
     sampled_patches_layer_attn_maps = []
+
+    if return_only_full_attn_maps:
+      full_attn_maps = []
 
     for layer_idx, layer_out in enumerate(layer_outs):
       B, C, H, W = layer_out.shape
@@ -96,6 +102,8 @@ class QSAPatchSampler(nn.Module):
               x=attn,
               idx=layer_attn_map_idx
           )
+          if return_only_full_attn_maps:
+            full_attn_maps.append(attn)
         else:
           layer_attn_map = attn_map_per_layer[layer_idx]
 
@@ -111,6 +119,9 @@ class QSAPatchSampler(nn.Module):
         )
         sampled_patches_layer_attn_maps.append(layer_attn_map)
         sampled_patches_idx.append(None)
+
+        if return_only_full_attn_maps:
+          return full_attn_maps
       else:
         if not patch_idx_per_layer:
           # sample random
