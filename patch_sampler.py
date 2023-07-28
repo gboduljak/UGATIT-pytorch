@@ -87,6 +87,7 @@ class PatchSampler(nn.Module):
               if apply_mlp
               else layer_sampled_patches
           ),
+          dim=-1,
           p=2
       )
       sampled_patches.append(
