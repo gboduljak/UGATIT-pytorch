@@ -262,8 +262,6 @@ class QSAPatchSampler(nn.Module):
             layer_attn_idx if self.qsa_type == QSAType.LOCAL else None
         )
 
-        if return_only_full_attn_maps:
-          return full_attn_maps
       else:
         if not patch_idx_per_layer:
           # sample random
@@ -310,5 +308,8 @@ class QSAPatchSampler(nn.Module):
       sampled_patches.append(
           layer_patch_embeddings
       )
+
+    if return_only_full_attn_maps:
+      return full_attn_maps
 
     return sampled_patches, sampled_patches_idx, sampled_patches_layer_attn_maps

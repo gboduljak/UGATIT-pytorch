@@ -18,6 +18,7 @@ from patch_sampler import PatchSampler
 from qsa_patch_sampler import QSAPatchSampler
 from seed import get_seeded_generator, seed_everything, seeded_worker_init_fn
 from utils import *
+from visualizations import plot_translation_examples
 
 
 class UGATIT_CUT(object):
@@ -498,148 +499,42 @@ class UGATIT_CUT(object):
         tl.write(f'{train_status_line}\n')
 
       if step % self.print_freq == 0:
-        train_sample_num = 5
-        test_sample_num = 5
-
-        if self.cut_type != 'vanilla':
-          A2B = np.zeros((self.img_size * 4, 0, 3))
-          B2B = np.zeros((self.img_size * 4, 0, 3))
-        else:
-          A2B = np.zeros((self.img_size * 3, 0, 3))
-          B2B = np.zeros((self.img_size * 3, 0, 3))
-
         self.generator.eval(),
         self.global_discriminator.eval(),
         self.local_discriminator.eval(),
         self.patch_sampler.eval()
-        with torch.no_grad():
-          for _ in range(train_sample_num):
-            try:
-              real_A, _ = next(trainA_iter)
-            except:
-              trainA_iter = iter(self.trainA_loader)
-              real_A, _ = next(trainA_iter)
 
-            try:
-              real_B, _ = next(trainB_iter)
-            except:
-              trainB_iter = iter(self.trainB_loader)
-              real_B, _ = next(trainB_iter)
-            real_A, real_B = real_A.to(self.device), real_B.to(self.device)
-
-            fake_A2B, _, fake_A2B_heatmap = self.generator(real_A)
-            fake_B2B, _, fake_B2B_heatmap = self.generator(real_B)
-
-            if self.cut_type == 'vanilla':
-              A2B = np.concatenate((A2B, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_A[0]))),
-                                                        cam(tensor2numpy(
-                                                            fake_A2B_heatmap[0]), self.img_size),
-                                                        RGB2BGR(tensor2numpy(
-                                                            denorm(fake_A2B[0]))),
-                                                         ), 0)), 1)
-
-              B2B = np.concatenate((B2B, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_B[0]))),
-                                                        cam(tensor2numpy(
-                                                            fake_B2B_heatmap[0]), self.img_size),
-                                                        RGB2BGR(tensor2numpy(
-                                                            denorm(fake_B2B[0]))),
-                                                         ), 0)), 1)
-            else:
-              loss_attn_A2B = self.patch_sampler(
-                  self.generator(real_A, nce=True),
-                  return_only_full_attn_maps=True,
-
-              )
-              loss_attn_B2B = self.patch_sampler(
-                  self.generator(real_B, nce=True),
-                  return_only_full_attn_maps=True,
-              )
-              A2B = np.concatenate((A2B, np.concatenate([
-                  RGB2BGR(tensor2numpy(denorm(real_A[0]))),
-                  cam(tensor2numpy(
-                      fake_A2B_heatmap[0]), self.img_size),
-                  RGB2BGR(tensor2numpy(denorm(fake_A2B[0])))
-              ] + [
-                  cam(tensor2numpy(attn), self.img_size)
-                  for attn in loss_attn_A2B
-              ], 0)), 1)
-
-              B2B = np.concatenate((B2B, np.concatenate([RGB2BGR(tensor2numpy(denorm(real_B[0]))),
-                                                         cam(tensor2numpy(
-                                                             fake_B2B_heatmap[0]), self.img_size),
-                                                         RGB2BGR(tensor2numpy(
-                                                             denorm(fake_B2B[0])))
-                                                         ] + [
-                  cam(tensor2numpy(attn), self.img_size)
-                  for attn in loss_attn_B2B
-              ], 0)), 1)
-
-          for _ in range(test_sample_num):
-            try:
-              real_A, _ = next(testA_iter)
-            except:
-              testA_iter = iter(self.testA_loader)
-              real_A, _ = next(testA_iter)
-
-            try:
-              real_B, _ = next(testB_iter)
-            except:
-              testB_iter = iter(self.testB_loader)
-              real_B, _ = next(testB_iter)
-            real_A, real_B = real_A.to(self.device), real_B.to(self.device)
-
-            fake_A2B, _, fake_A2B_heatmap = self.generator(real_A)
-
-            fake_B2B, _, fake_B2B_heatmap = self.generator(real_B)
-
-            if self.cut_type == 'vanilla':
-              A2B = np.concatenate((A2B, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_A[0]))),
-                                                        cam(tensor2numpy(
-                                                            fake_A2B_heatmap[0]), self.img_size),
-                                                        RGB2BGR(tensor2numpy(
-                                                            denorm(fake_A2B[0]))),
-                                                         ), 0)), 1)
-
-              B2B = np.concatenate((B2B, np.concatenate((RGB2BGR(tensor2numpy(denorm(real_B[0]))),
-                                                        cam(tensor2numpy(
-                                                            fake_B2B_heatmap[0]), self.img_size),
-                                                        RGB2BGR(tensor2numpy(
-                                                            denorm(fake_B2B[0]))),
-                                                         ), 0)), 1)
-            else:
-              loss_attn_A2B = self.patch_sampler(
-                  self.generator(real_A, nce=True),
-                  return_only_full_attn_maps=True,
-
-              )
-              loss_attn_B2B = self.patch_sampler(
-                  self.generator(real_B, nce=True),
-                  return_only_full_attn_maps=True,
-              )
-              A2B = np.concatenate((A2B, np.concatenate([
-                  RGB2BGR(tensor2numpy(denorm(real_A[0]))),
-                  cam(tensor2numpy(
-                      fake_A2B_heatmap[0]), self.img_size),
-                  RGB2BGR(tensor2numpy(denorm(fake_A2B[0])))
-              ] + [
-                  cam(tensor2numpy(attn), self.img_size)
-                  for attn in loss_attn_A2B
-              ], 0)), 1)
-
-              B2B = np.concatenate((B2B, np.concatenate([RGB2BGR(tensor2numpy(denorm(real_B[0]))),
-                                                         cam(tensor2numpy(
-                                                             fake_B2B_heatmap[0]), self.img_size),
-                                                         RGB2BGR(tensor2numpy(
-                                                             denorm(fake_B2B[0])))
-                                                         ] + [
-                  cam(tensor2numpy(attn), self.img_size)
-                  for attn in loss_attn_B2B
-              ], 0)), 1)
-
-        cv2.imwrite(os.path.join(self.result_dir, self.dataset,
-                    'img', 'A2B_%07d.png' % step), A2B * 255.0)
-        cv2.imwrite(os.path.join(self.result_dir, self.dataset,
-                    'img', 'B2B_%07d.png' % step), B2B * 255.0)
+        plot_translation_examples(
+            generator=self.generator,
+            patch_sampler=self.patch_sampler,
+            trainA_iter=iter(self.trainA_loader),
+            trainA_loader=self.trainA_loader,
+            trainB_iter=iter(self.trainB_loader),
+            trainB_loader=self.trainB_loader,
+            valA_iter=iter(self.valA_loader),
+            valA_loader=self.valA_loader,
+            valB_iter=iter(self.valB_loader),
+            valB_loader=self.valB_loader,
+            testA_iter=iter(self.testA_loader),
+            testA_loader=self.testA_loader,
+            testB_iter=iter(self.testB_loader),
+            testB_loader=self.testB_loader,
+            device=self.device,
+            A2B_results_filename=os.path.join(
+                self.result_dir,
+                self.dataset,
+                'img',
+                'A2B_%07d.png' % step
+            ),
+            B2B_results_filename=os.path.join(
+                self.result_dir,
+                self.dataset,
+                'img',
+                'B2B_%07d.png' % step
+            ),
+            img_size=self.img_size,
+            cut_type=self.cut_type
+        )
 
         self.generator.train(),
         self.global_discriminator.train(),
