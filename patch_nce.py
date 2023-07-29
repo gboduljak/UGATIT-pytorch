@@ -19,6 +19,12 @@ class PatchNCELoss(nn.Module):
     # logits: [batch_size, num_patches_per_batch, num_patches_per_batch]
     #       - diagonal entries are positives
     #       - non-diagonal entries are negatives
+    """
+    The gradient of PNCE applies on the anchor q to train the parameters in the generator, while it
+    is detached on k+ and k-, so that the generator is guided for the single
+    direction of domain translation.
+    """
+    k = k.detach()
     logits = (1 / self.temperature) * einsum(
         q,
         k,
