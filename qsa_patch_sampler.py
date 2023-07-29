@@ -101,9 +101,9 @@ class QSAPatchSampler(nn.Module):
     q_local = rearrange(
         layer_out,
         'b c h w -> b (h w) c'
-    ).view((B*W_S, C, 1))
+    ).reshape((B*W_S, C, 1))
     dots_local = einsum(k_local, q_local, 'b k c, b c l -> b k l')
-    attn_local = F.softmax(dots_local, dim=1).view((B, W_S, -1))
+    attn_local = F.softmax(dots_local, dim=1).reshape((B, W_S, -1))
     prob = -torch.log(attn_local)
     prob = torch.where(
         torch.isinf(prob),
