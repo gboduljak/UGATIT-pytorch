@@ -63,8 +63,6 @@ class QSAPatchSampler(nn.Module):
   def sample_local(self, layer_out: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     B, C, H, W = layer_out.shape
     K_S = 7  # as in the paper
-    num_patches_per_layer = 2
-
     layer_patches_local = F.unfold(
         layer_out,
         kernel_size=K_S,
