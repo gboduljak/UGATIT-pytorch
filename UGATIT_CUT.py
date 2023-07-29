@@ -498,8 +498,8 @@ class UGATIT_CUT(object):
         tl.write(f'{train_status_line}\n')
 
       if step % self.print_freq == 0:
-        train_sample_num = 2
-        test_sample_num = 2
+        train_sample_num = 5
+        test_sample_num = 5
 
         if self.cut_type != 'vanilla':
           A2B = np.zeros((self.img_size * 4, 0, 3))
