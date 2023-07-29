@@ -302,7 +302,7 @@ class UGATIT_CUT(object):
 
     should_init_optimizer = not self.patch_sampler.mlps_init
 
-    feat_k_pool, feat_q_pool = self.sample_patches(feat_q, feat_k)
+    feat_q_pool, feat_k_pool = self.sample_patches(feat_q, feat_k)
 
     if should_init_optimizer:
       self.init_patch_sampler_optimizer()
