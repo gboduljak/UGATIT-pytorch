@@ -60,10 +60,65 @@ class QSAPatchSampler(nn.Module):
 
     self.mlps_init = True
 
-  def get_global_attn_map(self, layer_out: torch.Tensor) -> torch.Tensor:
+  def sample_local(self, layer_out: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    B, C, H, W = layer_out.shape
+    K_S = 7  # as in the paper
+    num_patches_per_layer = 2
+
+    layer_patches_local = F.unfold(
+        layer_out,
+        kernel_size=K_S,
+        stride=1,
+        padding=3
+    )
+    k = rearrange(
+        layer_patches_local,
+        'b (i j c) l -> (b l) (i j) c',
+        i=K_S,
+        j=K_S,
+        c=C
+    )
+    W_S = layer_patches_local.shape[-1]  # window size
+    q = rearrange(
+        layer_out,
+        'b c h w -> b (h w) c'
+    ).reshape((B*W_S, C, 1))
+    dots = einsum(k, q, 'b k c, b c l -> b k l')
+    attn = F.softmax(dots, dim=1).reshape((B, W_S, -1))
+    prob = -torch.log(attn)
+    prob = torch.where(
+        torch.isinf(prob),
+        torch.full_like(prob, 0),
+        prob
+    )
+    ent = torch.sum(torch.mul(attn, prob), dim=2)
+    _, ent_idx = torch.sort(ent)
+    layer_attn_map_idx = ent_idx[:, :self.num_patches_per_layer]
+    layer_attn_map = batch_index_select(
+        x=attn,
+        idx=layer_attn_map_idx
+    )
+    v = layer_patches_local[
+        torch.arange(B)[:, None],
+        :,
+        layer_attn_map_idx
+    ]
+    v = rearrange(v, 'b n l -> (b l) n').reshape(
+        (B, self.num_patches_per_layer, K_S * K_S, C)
+    )
+    layer_sampled_patches = einsum(
+        layer_attn_map,
+        v,
+        'b n l, b n l c -> b n c'
+    )
+    return layer_sampled_patches, layer_attn_map, layer_attn_map_idx
+
+  def sample_global(self, layer_out: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     # Returns global attention map
     q = rearrange(layer_out, 'b c h w -> b (h w) c')
     k = rearrange(layer_out, 'b c h w -> b (h w) c')
+    v = rearrange(layer_out, 'b c h w -> b (h w) c')
+
     dots = einsum(q, k, 'b i c, b j c -> b i j')
     attn = torch.softmax(dots, dim=2)
     prob = -torch.log(attn)
@@ -79,9 +134,14 @@ class QSAPatchSampler(nn.Module):
         x=attn,
         idx=layer_attn_map_idx
     )
-    return layer_attn_map
+    layer_sampled_patches = einsum(
+        layer_attn_map,
+        v,
+        'b i j, b j c -> b i c'
+    )
+    return layer_sampled_patches, layer_attn_map, layer_attn_map_idx
 
-  def get_global_and_local_attn_map(self, layer_out: torch.Tensor):
+  def sample_global_and_local(self, layer_out: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     B, C, H, W = layer_out.shape
     K_S = 7  # as in the paper
     layer_patches_local = F.unfold(
@@ -116,13 +176,20 @@ class QSAPatchSampler(nn.Module):
 
     q_global = rearrange(layer_out, 'b c h w -> b (h w) c')
     k_global = rearrange(layer_out, 'b c h w -> b (h w) c')
+    v_global = rearrange(layer_out, 'b c h w -> b (h w) c')
+
     dots_global = einsum(q_global, k_global, 'b i c, b j c -> b i j')
     attn_global = F.softmax(dots_global, dim=2)  # softmax along rows
     layer_attn_map = batch_index_select(
         x=attn_global,
         idx=local_attn_idx
     )
-    return layer_attn_map
+    layer_sampled_patches = einsum(
+        layer_attn_map,
+        v_global,
+        'b i j, b j c -> b i c'
+    )
+    return layer_sampled_patches, layer_attn_map, local_attn_idx
 
   def forward(self,
               layer_outs: List[torch.Tensor],
@@ -147,27 +214,55 @@ class QSAPatchSampler(nn.Module):
 
       if layer_spatial_size <= self.max_spatial_size:
         if not attn_map_per_layer:
-          get_attn_map = {
-              QSAType.GLOBAL: self.get_global_attn_map,
-              QSAType.GLOBAL_AND_LOCAL: self.get_global_and_local_attn_map
+          samplers = {
+              QSAType.LOCAL: self.sample_local,
+              QSAType.GLOBAL: self.sample_global,
+              QSAType.GLOBAL_AND_LOCAL: self.sample_global_and_local
           }
-          layer_attn_map = get_attn_map[self.qsa_type](layer_out)
+          (layer_sampled_patches,
+           layer_attn_map,
+           layer_attn_idx) = samplers[self.qsa_type](layer_out)
           if return_only_full_attn_maps:
             full_attn_maps.append(layer_attn_map)
         else:
           layer_attn_map = attn_map_per_layer[layer_idx]
-        assert (
-            layer_attn_map != None and
-            type(layer_attn_map) == torch.Tensor
-        )
-        v = rearrange(layer_out, 'b c h w -> b (h w) c')
-        layer_sampled_patches = einsum(
-            layer_attn_map,
-            v,
-            'b i j, b j c -> b i c'
-        )
+
+          if self.qsa_type == QSAType.LOCAL:
+            K_S = 7
+            layer_attn_idx = patch_idx_per_layer[layer_idx]
+            layer_patches_local = F.unfold(
+                layer_out,
+                kernel_size=7,
+                stride=1,
+                padding=3
+            )
+            v = layer_patches_local[
+                torch.arange(B)[:, None],
+                :,
+                layer_attn_idx
+            ]
+            v = rearrange(v, 'b n l -> (b l) n').reshape(
+                (B, self.num_patches_per_layer, K_S * K_S, C)
+            )
+            layer_sampled_patches = einsum(
+                layer_attn_map,
+                v,
+                'b n l, b n l c -> b n c'
+            )
+          else:
+            v = rearrange(layer_out, 'b c h w -> b (h w) c')
+            layer_sampled_patches = einsum(
+                layer_attn_map,
+                v,
+                'b i j, b j c -> b i c'
+            )
+        assert (layer_sampled_patches != None)
+        assert (layer_attn_map != None)
+
         sampled_patches_layer_attn_maps.append(layer_attn_map)
-        sampled_patches_idx.append(None)
+        sampled_patches_idx.append(
+            layer_attn_idx if self.qsa_type == QSAType.LOCAL else None
+        )
 
         if return_only_full_attn_maps:
           return full_attn_maps

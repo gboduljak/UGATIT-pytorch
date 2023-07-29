@@ -14,6 +14,7 @@ opencv-python = "*"
 torchinfo = "*"
 torch-fidelity = "*"
 pytorch-fid = "*"
+matplotlib = "*"
 
 [dev-packages]
 
