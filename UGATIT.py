@@ -483,9 +483,6 @@ class UGATIT(object):
       if step % self.save_freq == 0:
         self.save(ckpt_file_name='iter_%07d.pt' % step)
 
-      if step % 1000 == 0:
-        self.save(ckpt_file_name='latest.pt')
-
       if step % self.val_freq == 0:
         self.val(step)
 
