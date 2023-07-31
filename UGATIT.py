@@ -530,7 +530,9 @@ class UGATIT(object):
     if not os.path.exists(model_translations_dir):
       os.mkdir(model_translations_dir)
     model_iter_translations_dir = Path(
-        model_train_translations_dir, 'iter_%07d' % step)
+        model_translations_dir,
+        'iter_%07d' % step
+    )
 
     if not os.path.exists(model_iter_translations_dir):
       os.mkdir(model_iter_translations_dir)
