@@ -9,7 +9,6 @@ import numpy as np
 import torch
 import torch_fidelity
 from torch.utils.data import DataLoader
-from torchinfo import summary
 from torchvision import transforms
 
 from dataset import ImageFolder
@@ -119,26 +118,45 @@ class UGATIT(object):
         transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
     ])
 
-    self.trainA = ImageFolder(os.path.join(
-        'dataset', self.dataset, 'trainA'), train_transform)
-    self.trainB = ImageFolder(os.path.join(
-        'dataset', self.dataset, 'trainB'), train_transform)
-    self.valA = ImageFolder(os.path.join(
-        'dataset', self.dataset, 'valA'), test_transform
+    self.trainA = ImageFolder(
+        os.path.join('dataset', self.dataset, 'trainA'),
+        train_transform
     )
-    self.valB = ImageFolder(os.path.join(
-        'dataset', self.dataset, 'valB'), test_transform
+    self.trainA_no_aug = ImageFolder(
+        os.path.join('dataset', self.dataset, 'trainA'),
+        test_transform
     )
-    self.testA = ImageFolder(os.path.join(
-        'dataset', self.dataset, 'testA'), test_transform)
-    self.testB = ImageFolder(os.path.join(
-        'dataset', self.dataset, 'testB'), test_transform)
+    self.trainB = ImageFolder(
+        os.path.join('dataset', self.dataset, 'trainB'),
+        train_transform
+    )
+    self.valA = ImageFolder(
+        os.path.join('dataset', self.dataset, 'valA'),
+        test_transform
+    )
+    self.valB = ImageFolder(
+        os.path.join('dataset', self.dataset, 'valB'),
+        test_transform
+    )
+    self.testA = ImageFolder(
+        os.path.join('dataset', self.dataset, 'testA'),
+        test_transform
+    )
+    self.testB = ImageFolder(
+        os.path.join('dataset', self.dataset, 'testB'),
+        test_transform
+    )
     self.trainA_loader = DataLoader(
         self.trainA,
         batch_size=self.batch_size,
         worker_init_fn=seeded_worker_init_fn,
         generator=trainA_dataloader_generator,
         shuffle=True
+    )
+    self.trainA_no_aug_loader = DataLoader(
+        self.trainA_no_aug,
+        batch_size=1,
+        shuffle=False
     )
     self.trainB_loader = DataLoader(
         self.trainB,
@@ -203,13 +221,14 @@ class UGATIT(object):
     ), self.disGB.train(), self.disLA.train(), self.disLB.train()
 
     start_iter = 1
+    self.smallest_val_fid = float('inf')
     if self.resume:
       model_list = glob(os.path.join(
           self.result_dir, self.dataset, 'model', '*.pt'))
       if not len(model_list) == 0:
         model_list.sort()
         start_iter = int(model_list[-1].split('_')[-1].split('.')[0])
-        self.load(ckpt='params_%07d.pt' % start_iter)
+        self.load(ckpt='iter_%07d.pt' % start_iter)
         print(" [*] Load SUCCESS")
         if self.decay_flag and start_iter > (self.iteration // 2):
           self.G_optim.param_groups[0]['lr'] -= (self.lr / (
@@ -341,12 +360,12 @@ class UGATIT(object):
       self.genA2B.apply(self.Rho_clipper)
       self.genB2A.apply(self.Rho_clipper)
 
-      train_status_line = "[%5d/%5d] time: %4.4f d_loss: %.8f, g_loss: %.8f" % (step,
-                                                                                self.iteration, time.time() - start_time, Discriminator_loss, Generator_loss)
+      loss_line = "[%5d/%5d] time: %4.4f d_loss: %.8f, g_loss: %.8f" % (step,
+                                                                        self.iteration, time.time() - start_time, Discriminator_loss, Generator_loss)
 
-      print(train_status_line)
-      with open(os.path.join(self.result_dir, self.dataset, 'train_log.txt'), 'a') as tl:
-        tl.write(f'{train_status_line}\n')
+      print(loss_line)
+      with open(os.path.join(self.result_dir, self.dataset, 'loss_log.txt'), 'a') as tl:
+        tl.write(f'{loss_line}\n')
 
       if step % self.print_freq == 0:
         train_sample_num = 5
@@ -462,10 +481,10 @@ class UGATIT(object):
         ), self.disGB.train(), self.disLA.train(), self.disLB.train()
 
       if step % self.save_freq == 0:
-        self.save(ckpt_file_name='params_%07d.pt' % step)
+        self.save(ckpt_file_name='iter_%07d.pt' % step)
 
       if step % 1000 == 0:
-        self.save(ckpt_file_name='params_latest.pt')
+        self.save(ckpt_file_name='latest.pt')
 
       if step % self.val_freq == 0:
         self.val(step)
@@ -505,66 +524,129 @@ class UGATIT(object):
     self.disLB.load_state_dict(params['disLB'])
 
   def val(self, step: int):
+    results_dir = Path(self.result_dir, self.dataset)
 
-    model_val_translations_dir = Path(self.result_dir, self.dataset, 'val')
+    model_translations_dir = Path(self.result_dir, self.dataset, 'translations')
+    if not os.path.exists(model_translations_dir):
+      os.mkdir(model_translations_dir)
+    model_iter_translations_dir = Path(
+        model_train_translations_dir, 'iter_%07d' % step)
+
+    if not os.path.exists(model_iter_translations_dir):
+      os.mkdir(model_iter_translations_dir)
+
+    model_train_translations_dir = Path(model_iter_translations_dir, 'train')
+    model_val_translations_dir = Path(model_iter_translations_dir, 'val')
+
+    if not os.path.exists(model_train_translations_dir):
+      os.mkdir(model_train_translations_dir)
     if not os.path.exists(model_val_translations_dir):
       os.mkdir(model_val_translations_dir)
 
-    model_with_step_translations_dir = Path(
-        model_val_translations_dir,
-        'params_%07d' % step
-    )
-
-    if not os.path.exists(model_with_step_translations_dir):
-      os.mkdir(model_with_step_translations_dir)
+    if not os.path.exists(model_train_translations_dir):
+      os.mkdir(model_train_translations_dir)
+    if not os.path.exists(model_val_translations_dir):
+      os.mkdir(model_val_translations_dir)
 
     self.genA2B.eval()
-
-    print('translating val...')
-    for n, (real_A, _) in enumerate(self.valA_loader):
-      real_A = real_A.to(self.device)
-      img_path, _ = self.valA_loader.dataset.samples[n]
-      img_name = Path(img_path).name.split('.')[0]
-      fake_A2B, _, _ = self.genA2B(real_A)
-      cv2.imwrite(
-          os.path.join(model_with_step_translations_dir,
-                       f'{img_name}_fake_B.jpg'),
-          RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
-      )
+    with torch.no_grad():
+      print('translating train...')
+      for n, (real_A, _) in enumerate(self.trainA_no_aug_loader):
+        real_A = real_A.to(self.device)
+        img_path, _ = self.trainA_no_aug_loader.dataset.samples[n]
+        img_name = Path(img_path).name.split('.')[0]
+        fake_A2B, _, _ = self.genA2B(real_A)
+        cv2.imwrite(
+            os.path.join(
+                model_train_translations_dir,
+                f'{img_name}_fake_B.jpg'
+            ),
+            RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
+        )
+      print('translating val...')
+      for n, (real_A, _) in enumerate(self.valA_loader):
+        real_A = real_A.to(self.device)
+        img_path, _ = self.valA_loader.dataset.samples[n]
+        img_name = Path(img_path).name.split('.')[0]
+        fake_A2B, _, _ = self.genA2B(real_A)
+        cv2.imwrite(
+            os.path.join(
+                model_val_translations_dir,
+                f'{img_name}_fake_B.jpg'
+            ),
+            RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
+        )
     # compute metrics
+    target_real_train_dir = os.path.join(
+        'dataset',
+        self.dataset,
+        'trainB'
+    )
     target_real_val_dir = os.path.join(
         'dataset',
         self.dataset,
         'valB'
     )
-    metrics = torch_fidelity.calculate_metrics(
+    train_metrics = torch_fidelity.calculate_metrics(
+        input1=str(target_real_train_dir),
+        input2=str(Path(model_train_translations_dir)),  # fake dir
+        fid=True,
+        verbose=False,
+        cuda=torch.cuda.is_available(),
+    )
+    val_metrics = torch_fidelity.calculate_metrics(
         input1=str(target_real_val_dir),
-        input2=str(Path(model_with_step_translations_dir)),  # fake dir,
-        isc=True,
+        input2=str(Path(model_val_translations_dir)),  # fake dir,
         fid=True,
         verbose=False,
         rng_seed=self.seed,
         cuda=torch.cuda.is_available(),
     )
-    with open(os.path.join(model_val_translations_dir, 'val_log.txt'), 'a') as tl:
-      tl.write(f'step:{step}\n')
+
+    train_log_file = os.path.join(results_dir, 'train_log.txt')
+    val_log_file = os.path.join(results_dir, 'val_log.txt')
+    smallest_val_fid_file = os.path.join(results_dir, 'smallest_val_fid.txt')
+
+    with open(train_log_file, 'a') as tl:
+      tl.write(f'iter: {step}\n')
       tl.write(
-          f'inception_score_mean: {metrics["inception_score_mean"]}\n'
+          f'frechet_inception_distance: {train_metrics["frechet_inception_distance"]}\n'
       )
-      tl.write(
-          f'inception_score_std: {metrics["inception_score_std"]}\n',
+
+    with open(val_log_file, 'a') as vl:
+      vl.write(f'iter: {step}\n')
+      vl.write(
+          f'frechet_inception_distance: {val_metrics["frechet_inception_distance"]}\n'
       )
-      tl.write(
-          f'frechet_inception_distance: {metrics["frechet_inception_distance"]}\n'
+
+    if val_metrics['frechet_inception_distance'] < self.smallest_val_fid:
+      self.smallest_val_fid = val_metrics['frechet_inception_distance']
+      print(
+          f'{self.smallest_val_fid} is the smallest val fid so far, saving this model...'
       )
+      self.save(ckpt_file_name='smallest_val_fid.pt')
+
+      if os.path.exists(smallest_val_fid_file):
+        os.remove(smallest_val_fid_file)
+
+      with open(smallest_val_fid_file, 'a') as tl:
+        tl.write(
+            f'iter: {step}\n'
+        )
+        tl.write(
+            f'frechet_inception_distance: {val_metrics["frechet_inception_distance"]}\n'
+        )
+
+    self.genA2B.train()
 
   def test(self):
     model_list = glob(os.path.join(
-        self.result_dir, self.dataset, 'model', '*.pt'))
+        self.result_dir, self.dataset, 'model', '*.pt'
+    ))
     if not len(model_list) == 0:
       model_list.sort()
       iter = int(model_list[-1].split('_')[-1].split('.')[0])
-      self.load(ckpt='params_%07d.pt' % iter)
+      self.load(ckpt='iter_%07d.pt' % iter)
       print(" [*] Load SUCCESS")
     else:
       print(" [*] Load FAILURE")
@@ -663,50 +745,50 @@ class UGATIT(object):
       os.mkdir(full_translated_imgs_dir)
 
     self.genA2B.eval(), self.genB2A.eval()
-
-    print('translating train...')
-    for n, (real_A, _) in enumerate(self.trainA_loader):
-      real_A = real_A.to(self.device)
-      img_path, _ = self.trainA_loader.dataset.samples[n]
-      img_name = Path(img_path).name.split('.')[0]
-      fake_A2B, _, _ = self.genA2B(real_A)
-      print(os.path.join(train_translated_imgs_dir, f'{img_name}_fake_B.jpg'))
-      cv2.imwrite(
-          os.path.join(train_translated_imgs_dir, f'{img_name}_fake_B.jpg'),
-          RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
-      )
-      cv2.imwrite(
-          os.path.join(full_translated_imgs_dir, f'{img_name}_fake_B.jpg'),
-          RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
-      )
-    if val_translated_imgs_dir:
-      print('translating val...')
-      for n, (real_A, _) in enumerate(self.valA_loader):
+    with torch.no_grad():
+      print('translating train...')
+      for n, (real_A, _) in enumerate(self.trainA_no_aug_loader):
         real_A = real_A.to(self.device)
-        img_path, _ = self.valA_loader.dataset.samples[n]
+        img_path, _ = self.trainA_no_aug_loader.dataset.samples[n]
         img_name = Path(img_path).name.split('.')[0]
         fake_A2B, _, _ = self.genA2B(real_A)
-        print(os.path.join(val_translated_imgs_dir, f'{img_name}_fake_B.jpg'))
+        print(os.path.join(train_translated_imgs_dir, f'{img_name}_fake_B.jpg'))
         cv2.imwrite(
-            os.path.join(val_translated_imgs_dir, f'{img_name}_fake_B.jpg'),
+            os.path.join(train_translated_imgs_dir, f'{img_name}_fake_B.jpg'),
             RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
         )
         cv2.imwrite(
             os.path.join(full_translated_imgs_dir, f'{img_name}_fake_B.jpg'),
             RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
         )
-    print('translating test...')
-    for n, (real_A, _) in enumerate(self.testA_loader):
-      real_A = real_A.to(self.device)
-      img_path, _ = self.testA_loader.dataset.samples[n]
-      img_name = Path(img_path).name.split('.')[0]
-      fake_A2B, _, _ = self.genA2B(real_A)
-      print(os.path.join(test_translated_imgs_dir, f'{img_name}_fake_B.jpg'))
-      cv2.imwrite(
-          os.path.join(test_translated_imgs_dir, f'{img_name}_fake_B.jpg'),
-          RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
-      )
-      cv2.imwrite(
-          os.path.join(full_translated_imgs_dir, f'{img_name}_fake_B.jpg'),
-          RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
-      )
+      if val_translated_imgs_dir:
+        print('translating val...')
+        for n, (real_A, _) in enumerate(self.valA_loader):
+          real_A = real_A.to(self.device)
+          img_path, _ = self.valA_loader.dataset.samples[n]
+          img_name = Path(img_path).name.split('.')[0]
+          fake_A2B, _, _ = self.genA2B(real_A)
+          print(os.path.join(val_translated_imgs_dir, f'{img_name}_fake_B.jpg'))
+          cv2.imwrite(
+              os.path.join(val_translated_imgs_dir, f'{img_name}_fake_B.jpg'),
+              RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
+          )
+          cv2.imwrite(
+              os.path.join(full_translated_imgs_dir, f'{img_name}_fake_B.jpg'),
+              RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
+          )
+      print('translating test...')
+      for n, (real_A, _) in enumerate(self.testA_loader):
+        real_A = real_A.to(self.device)
+        img_path, _ = self.testA_loader.dataset.samples[n]
+        img_name = Path(img_path).name.split('.')[0]
+        fake_A2B, _, _ = self.genA2B(real_A)
+        print(os.path.join(test_translated_imgs_dir, f'{img_name}_fake_B.jpg'))
+        cv2.imwrite(
+            os.path.join(test_translated_imgs_dir, f'{img_name}_fake_B.jpg'),
+            RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
+        )
+        cv2.imwrite(
+            os.path.join(full_translated_imgs_dir, f'{img_name}_fake_B.jpg'),
+            RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))) * 255.0
+        )

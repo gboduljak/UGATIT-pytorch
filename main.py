@@ -62,7 +62,7 @@ def parse_args():
                       help='Directory name to save the results')
   parser.add_argument('--device', type=str, default='cuda',
                       choices=['cpu', 'cuda', 'mps'],
-                      help='Set gpu mode; [cpu, cuda, mps')
+                      help='Set gpu mode; [cpu, cuda, mps]')
   parser.add_argument('--benchmark_flag', type=str2bool, default=False)
   parser.add_argument('--resume', type=str2bool, default=False)
   parser.add_argument('--seed', type=int, default=269902365, help='Seed')
@@ -78,13 +78,11 @@ def check_args(args):
   check_folder(os.path.join(args.result_dir, args.dataset, 'model'))
   check_folder(os.path.join(args.result_dir, args.dataset, 'img'))
   check_folder(os.path.join(args.result_dir, args.dataset, 'test'))
-  with open(os.path.join(args.result_dir, args.dataset, 'training_log.txt'), 'w'):
-    pass
-  # --epoch
+  # --iteration
   try:
-    assert args.epoch >= 1
+    assert args.iteration >= 1
   except:
-    print('number of epochs must be larger than or equal to one')
+    print('number of iterations must be larger than or equal to one')
 
   # --batch_size
   try:
